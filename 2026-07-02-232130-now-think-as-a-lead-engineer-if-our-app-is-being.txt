@@ -1,0 +1,2083 @@
+ ▐▛███▜▌   Claude Code v2.1.154
+▝▜█████▛▘  stealth · API Usage Billing
+  ▘▘ ▝▝    ~/personal/projects/signal
+
+
+❯ Now think as a lead engineer, if our app is being used by 100+ users, what    
+  issue they will face, what can we improve in this app so that 100 users can   
+  use it without any issue, think of gaps, issues and conflicts that can arise. 
+
+  Thought for 7s (ctrl+o to expand)
+
+● Explore first. Read key files.
+
+  Thought for 36s, read 5 files, listed 1 directory (ctrl+o to expand)
+
+● Enough context. Analysis as lead eng — Signal at 100+ users.
+
+  Scaling gaps, by severity
+
+  🔴 Blockers (break or degrade fast)
+
+  1. Reaction counts computed client-side by fetching every reaction row.
+  decorateNotes (notes.ts:92) pulls all reactions rows for the 10 notes on
+  screen, counts in JS. One popular note w/ 5k reactions = 5k rows over wire per
+  feed load. No aggregate. Fix: DB-side count — either reaction_counts
+  denormalized column (trigger on insert/delete) or a count view. At 100 users
+  survivable; at viral note, not.
+
+  2. Feed has no realtime — goes stale.
+  useFeed loads once, needs manual pull-refresh. 100 users posting = feed always
+  behind. No supabase.channel().on('postgres_changes'). Add realtime
+  subscription on voice_notes insert → prepend, and on reactions → patch counts.
+
+  3. Profile loads ALL notes unbounded.
+  fetchUserNotes (notes.ts:237) = no limit, pulls every note + nested reactions.
+  fetchProfileStats + fetchPublicProfile both call it just to .length + sum.
+  Power user w/ 500 notes = huge payload every profile open. Fix: count:'exact',
+  head:true for totals; paginate the note list.
+
+  🟠 Correctness / conflict risks
+
+  4. Username signup race.
+  users.username unique — two users pick same name same instant → one hits
+  23505, need graceful "taken, retry" not crash. Check UsernameScreen handles
+  it.
+
+  5. Migration drift — already bit you.
+  0005_fix_reactions.sql exists ONLY because 0002 never reached prod DB
+  (42501/42P10 in prod). Manual SQL-editor deploys = silent skip. This WILL
+  recur w/ more devs/envs. Fix: supabase db push in CI, verify migration state,
+  stop hand-pasting.
+
+  6. "Following" feed in(user_id, authorIds).
+  notes.ts:153 — inlines all followed ids into query. Follow 1k users → giant IN
+  list, URL/statement bloat. Fix: server-side join (RPC or view joining
+  follows).
+
+  🔴 Security / abuse (write normal — matters at 100 users)
+
+  7. No block / mute / report. Global public feed of voice recordings + 100
+  strangers = harassment vector with zero moderation primitives. Need: block
+  table (filters feed), report flow, and an admin takedown path. This is the
+  biggest social-scaling gap, not a perf one.
+
+  8. Audio is a fully public bucket, permanent URLs. Anyone (even
+  unauthenticated, with the URL) can fetch any voice note forever — URLs are
+  guessable-ish (<uid>/<timestamp>.m4a) and leak the poster's uid. Consider
+  signed URLs + authenticated read policy if notes are meant to be in-app only.
+
+  9. No upload rate limit / size cap. A user can spam-post to inflate storage
+  cost and flood the feed. Add: per-user post rate limit (edge function or DB
+  trigger counting recent inserts) and a max file size / max duration enforced
+  server-side, not just client.
+
+  🟡 Cleanup / operational
+
+  10. Dead deliver-note edge function + deliveries table. Unused since
+  global-feed migration (0002) but still deployed, still has RLS surface. Remove
+  or document — dead auth surface is a liability.
+
+  11. public_usernames view exposes every username to every authed user. Fine
+  for this app, but note it — it's the enumeration surface (scrape all users).
+  Acceptable, flag it.
+
+  12. Feed audio players — memory. Many AudioPlayer mounted in list. Verify
+  unmount/recycle on scroll (FlatList windowing) else 100-item scroll = memory
+  bloat / audio handle leak.
+
+  13. No offline/retry. Errors throw raw strings; no retry, no queue for posting
+  on flaky mobile network.
+
+  Top 5 to fix first
+
+  1. Denormalize reaction counts (kills the row-fetch blowup) — #1
+  2. Realtime feed subscription — #2
+  3. Paginate/counthead profile — #3
+  4. Block + report primitives — #7
+  5. CI migrations (db push) — #5
+
+  Want me to plan + implement any? Suggest starting #1+#2 together (both touch
+  feed) — I'd EnterPlanMode for those. Which?
+
+✻ Cogitated for 1m 11s
+
+❯ Yes, plan for all 5 and then implement                                        
+
+  Thought for 8s (ctrl+o to expand)
+
+● Need full context before edits. Read remaining files.
+
+  Thought for 6s, read 4 files (ctrl+o to expand)
+
+● Read rest, then build.
+
+  Thought for 31s, read 3 files (ctrl+o to expand)
+
+● Full context. Read theme + a couple app routes + AuthContext for wiring.
+
+  Thought for 35s, read 3 files (ctrl+o to expand)
+
+● Full context. Check package.json, app routes, ui.tsx exports, existing CI.
+
+  Thought for 1m 15s, searched for 1 pattern, listed 1 directory (ctrl+o to expand)
+
+● Have everything. Plan set. Track as tasks, then implement.
+
+  Thought for 6s (ctrl+o to expand)
+
+● Start #1. Migration for denormalized reaction counts.
+
+● Write(supabase/migrations/0006_denormalize_reaction_counts.sql)
+  ⎿  Wrote 105 lines to
+     supabase/migrations/0006_denormalize_reaction_counts.sql
+       1 -- Signal — denormalize reaction aggregates onto voice_notes.
+         for the notes on
+       3 -- screen and counted them in JS. One popular note with thousand
+       4 -- thousands of rows over the wire per feed page. Does not scale
+       5 -- of active users / one viral note.
+       6 --
+       8 --   reaction_total  integer            — total reactions on the
+          note
+         . } per-emoji
+         lete / emoji
+     … +117 lines (ctrl+o to expand)
+
+  Thought for 7s (ctrl+o to expand)
+
+● Bug in backfill: count(r.*) counts emoji-groups not total. Fix to sum(r.cnt).
+
+● Update(supabase/migrations/0006_denormalize_reaction_counts.sql)
+  ⎿  Added 1 line, removed 1 line
+      91  from (
+      92    select
+      93      n.id as note_id,
+      94 -    count(r.*)::int                                            
+         -  as total,                                                    
+      94 +    coalesce(sum(r.cnt), 0)::int                               
+         + as total,                                                     
+      95      coalesce(jsonb_object_agg(r.emoji, r.cnt) filter (where r.e
+          moji is not null), '{}'::jsonb) as counts
+      96    from public.voice_notes n
+      97    left join lateral (
+
+  Thought for 5s (ctrl+o to expand)
+● Now data layer. Update types + decorateNotes to use aggregates.
+
+● Update(src/types.ts)
+  ⎿  Added 4 lines
+      19    audio_url: string;
+      20    duration: number | null;
+      21    created_at: string;
+      22 +  // Denormalized reaction aggregates, maintained by a DB trigg
+         +er (see                                                        
+      23 +  // migration 0006). The feed reads these directly instead of 
+         +counting rows.                                                 
+      24 +  reaction_total: number;                                      
+      25 +  reaction_counts: ReactionCounts;                             
+      26  }
+      27  
+      28  // One of the six allowed reaction emojis.
+
+  Thought for 20s (ctrl+o to expand)
+
+● Update(src/lib/notes.ts)
+  ⎿  Added 30 lines, removed 38 lines
+       59  
+       60  const FEED_PAGE_SIZE = 10;
+       61  
+       62 -// A bare voice_notes row as selected for the feed (no joins).
+       63 -type FeedRow = Pick<VoiceNoteRow, 'id' | 'audio_url' | 'durati
+          -on' | 'created_at' | 'user_id'>;                              
+       62 +// A bare voice_notes row as selected for the feed. Reaction a
+          +ggregates come                                                
+       63 +// denormalized off the row (migration 0006) — no per-reaction
+          + fan-out.                                                     
+       64 +type FeedRow = Pick<                                          
+       65 +  VoiceNoteRow,                                               
+       66 +  'id' | 'audio_url' | 'duration' | 'created_at' | 'user_id' |
+          + 'reaction_total' | 'reaction_counts'                         
+       67 +>;                                                            
+       68  
+       65 -// Per-note running aggregate while decorating.               
+       66 -interface NoteAgg {                                           
+       67 -  counts: ReactionCounts;                                     
+       68 -  total: number;                                              
+       69 -  mine: ReactionEmoji | null;                                 
+       70 -}                                                             
+       69 +// Columns to select for a feed row (aggregates included).    
+       70 +const FEED_COLUMNS = 'id, audio_url, duration, created_at, use
+          +r_id, reaction_total, reaction_counts';                       
+       71  
+       72 -// Attach poster usernames + reaction summaries to a batch of 
+          -note rows.                                                    
+       73 -// Returns the rows shaped for the UI. `viewerId` is the curre
+          -nt user (to mark                                              
+       74 -// their own reaction).                                       
+       72 +// Attach poster usernames + the viewer's own reaction to a ba
+          +tch of note rows.                                             
+       73 +// Reaction COUNTS are read straight off the denormalized aggr
+          +egate columns, so                                             
+       74 +// the only reaction rows fetched are the viewer's own (one pe
+          +r note, bounded) —                                            
+       75 +// not every reaction on every note. `viewerId` marks the view
+          +er's own reaction.                                            
+       76  async function decorateNotes(rows: FeedRow[], viewerId: string
+           ): Promise<FeedNote[]> {
+       77    if (!rows.length) return [];
+       78  
+       79    const noteIds = rows.map((n) => n.id);
+       80    const authorIds = [...new Set(rows.map((n) => n.user_id))];
+       81  
+       81 -  // Batch-resolve usernames (users RLS is self-only → go thro
+          -ugh the view).                                                
+       82 -  const { data: names, error: nErr } = await supabase         
+       83 -    .from('public_usernames')                                 
+       84 -    .select('id, username')                                   
+       85 -    .in('id', authorIds);                                     
+       82 +  // Batch-resolve usernames (users RLS is self-only → go thro
+          +ugh the view) and                                             
+       83 +  // the viewer's own reactions on these notes, in parallel.  
+       84 +  const [{ data: names, error: nErr }, { data: mine, error: rE
+          +rr }] = await Promise.all([                                   
+       85 +    supabase.from('public_usernames').select('id, username').i
+          +n('id', authorIds),                                           
+       86 +    supabase                                                  
+       87 +      .from('reactions')                                      
+       88 +      .select('voice_note_id, emoji')                         
+       89 +      .eq('reactor_user_id', viewerId)                        
+       90 +      .in('voice_note_id', noteIds),                          
+       91 +  ]);                                                         
+       92    if (nErr) throw new Error(nErr.message);
+       93 +  if (rErr) throw new Error(rErr.message);                    
+       94 +                                                              
+       95    const nameById: Record<string, string> = Object.fromEntries(
+       96      (names ?? []).map((n) => [n.id, n.username])
+       97    );
+       98 +  const mineByNote: Record<string, ReactionEmoji> = Object.fro
+          +mEntries(                                                     
+       99 +    (mine ?? []).map((r) => [r.voice_note_id, r.emoji as React
+          +ionEmoji])                                                    
+      100 +  );                                                          
+      101  
+       91 -  // Batch-fetch all reactions for these notes.               
+       92 -  const { data: reacts, error: rErr } = await supabase        
+       93 -    .from('reactions')                                        
+       94 -    .select('voice_note_id, emoji, reactor_user_id')          
+       95 -    .in('voice_note_id', noteIds);                            
+       96 -  if (rErr) throw new Error(rErr.message);                    
+       97 -                                                              
+       98 -  // Aggregate per note: emoji counts, total, and the viewer's
+          - own reaction.                                                
+       99 -  const byNote: Record<string, NoteAgg> = {};                 
+      100 -  for (const id of noteIds) byNote[id] = { counts: {}, total: 
+          -0, mine: null };                                              
+      101 -  for (const r of reacts ?? []) {                             
+      102 -    const agg = byNote[r.voice_note_id];                      
+      103 -    if (!agg) continue;                                       
+      104 -    const emoji = r.emoji as ReactionEmoji;                   
+      105 -    agg.counts[emoji] = (agg.counts[emoji] ?? 0) + 1;         
+      106 -    agg.total += 1;                                           
+      107 -    if (r.reactor_user_id === viewerId) agg.mine = emoji;     
+      108 -  }                                                           
+      109 -                                                              
+      102    return rows.map((n) => ({
+      103      id: n.id,
+      104      audio_url: n.audio_url,
+     ...
+      106      created_at: n.created_at,
+      107      user_id: n.user_id,
+      108      author: { id: n.user_id, username: nameById[n.user_id] ?? 
+           'ANON' },
+      117 -    reactionCounts: byNote[n.id].counts,                      
+      118 -    total: byNote[n.id].total,                                
+      119 -    myReaction: byNote[n.id].mine,                            
+      109 +    reactionCounts: n.reaction_counts ?? {},                  
+      110 +    total: n.reaction_total ?? 0,                             
+      111 +    myReaction: mineByNote[n.id] ?? null,                     
+      112    }));
+      113  }
+      114  
+
+● Update feed query to select aggregate columns.
+
+● Update(src/lib/notes.ts)
+  ⎿  Added 1 line, removed 1 line
+      139  
+      140    let query = supabase
+      141      .from('voice_notes')
+      142 -    .select('id, audio_url, duration, created_at, user_id')   
+      142 +    .select(FEED_COLUMNS)                                     
+      143      .order('created_at', { ascending: false })
+      144      .limit(size);
+      145    if (authorIds) query = query.in('user_id', authorIds);
+
+  Thought for 9s (ctrl+o to expand)
+
+● Task 1 done. Now task 3 (profile) — related, uses same aggregates.
+  fetchUserNotes still pulls nested reaction rows; switch to aggregate columns.
+  But UserNote.reactions feeds VoiceNoteCard static summary. Migrate card static
+  mode to reactionCounts.
+
+  Thought for 7s (ctrl+o to expand)
+
+● Task 3: paginate profile + count-head. Add stats RPC (migration 0007), rework
+  UserNote to use aggregates, paginate fetchUserNotes.
+
+● Write(supabase/migrations/0007_user_stats_rpc.sql)
+  ⎿  Wrote 27 lines to supabase/migrations/0007_user_stats_rpc.sql
+       1 -- Signal — user profile stats RPC.
+         tal reactions
+       3 -- received" by fetching EVERY note (with its nested reactions) 
+       4 -- .length and sum. A prolific user's profile pulled their whole
+          history on each
+       6 --
+       7 -- Fix: a single server-side aggregate. note_count from a COUNT,
+       8 -- from SUM of the denormalized voice_notes.reaction_total (migr
+         ation 0006). The
+      10 --
+     … +25 lines (ctrl+o to expand)
+
+  Thought for 4s (ctrl+o to expand)
+
+● Now update types: UserNote uses aggregates, add pagination page type.
+
+● Update(src/types.ts)
+  ⎿  Added 13 lines, removed 5 lines
+      52    myReaction: ReactionEmoji | null;
+      53  }
+      54  
+      55 -// A user's own note with its raw reactions attached (My Notes 
+         -/ Profile lists).                                              
+      55 +// A user's own note (My Notes / Profile lists). Reaction summa
+         +ry comes from the                                              
+      56 +// denormalized aggregates (migration 0006) — no per-reaction r
+         +ows fetched.                                                   
+      57  export interface UserNote {
+      58    id: string;
+      59    audio_url: string;
+      60    duration: number | null;
+      61    created_at: string;
+      61 -  reactions: ReactionRow[];                                    
+      62 +  reactionCounts: ReactionCounts;                              
+      63 +  reactionTotal: number;                                       
+      64  }
+      65  
+      66  export interface FeedPage {
+     ...
+      69    hasMore: boolean;
+      70  }
+      71  
+      72 +// A page of a user's own notes, keyset-paginated by created_at
+         +.                                                              
+      73 +export interface UserNotePage {                                
+      74 +  notes: UserNote[];                                           
+      75 +  nextCursor: string | null;                                   
+      76 +  hasMore: boolean;                                            
+      77 +}                                                              
+      78 +                                                               
+      79  export interface ProfileStats {
+      80    totalNotes: number;
+      81    totalReactions: number;
+      73 -  notes: UserNote[];                                           
+      82  }
+      83  
+      76 -// Public profile bundle (UserProfileScreen).                  
+      84 +// Public profile bundle (UserProfileScreen). Stats are counts 
+         +only; the note                                                 
+      85 +// list is fetched + paginated separately.                     
+      86  export interface PublicProfile {
+      87    username: string;
+      79 -  notes: UserNote[];                                           
+      88    totalNotes: number;
+      89    totalReactions: number;
+      90    followerCount: number;
+
+  Thought for 5s (ctrl+o to expand)
+
+● Now rewrite fetchUserNotes (paginated, aggregates) + fetchProfileStats (RPC)
+  in notes.ts.
+
+● Update(src/lib/notes.ts)
+  ⎿  Added 51 lines, removed 11 lines
+      225  // Per-user lists (My Notes / Profile)
+      226  // ───────────────────────────────────────────────────────────
+           ──
+      227  
+      228 -// All voice notes by a user, newest first, with their reactio
+          -ns attached.                                                  
+      229 -export async function fetchUserNotes(userId: string): Promise<
+          -UserNote[]> {                                                 
+      230 -  const { data, error } = await supabase                      
+      228 +const USER_NOTES_PAGE_SIZE = 15;                              
+      229 +                                                              
+      230 +// Columns for a user note (denormalized reaction aggregates, 
+          +no nested rows).                                              
+      231 +const USER_NOTE_COLUMNS = 'id, audio_url, duration, created_at
+          +, reaction_total, reaction_counts';                           
+      232 +                                                              
+      233 +// One page of a user's notes, newest first. Keyset pagination
+          +: pass the last                                               
+      234 +// item's `created_at` as `before` for the next page. Reaction
+          + summaries come                                               
+      235 +// from the aggregate columns — no per-reaction fan-out per no
+          +te.                                                           
+      236 +export async function fetchUserNotesPage({                    
+      237 +  userId,                                                     
+      238 +  before = null,                                              
+      239 +  limit = USER_NOTES_PAGE_SIZE,                               
+      240 +}: {                                                          
+      241 +  userId: string;                                             
+      242 +  before?: string | null;                                     
+      243 +  limit?: number;                                             
+      244 +}): Promise<UserNotePage> {                                   
+      245 +  const size = Math.min(limit, USER_NOTES_PAGE_SIZE);         
+      246 +                                                              
+      247 +  let query = supabase                                        
+      248      .from('voice_notes')
+      232 -    .select('id, audio_url, duration, created_at, reactions ( 
+          -emoji )')                                                     
+      249 +    .select(USER_NOTE_COLUMNS)                                
+      250      .eq('user_id', userId)
+      234 -    .order('created_at', { ascending: false });               
+      251 +    .order('created_at', { ascending: false })                
+      252 +    .limit(size);                                             
+      253 +  if (before) query = query.lt('created_at', before);         
+      254 +                                                              
+      255 +  const { data, error } = await query;                        
+      256    if (error) throw new Error(error.message);
+      236 -  return (data ?? []) as UserNote[];                          
+      257 +                                                              
+      258 +  const rows = (data ?? []) as Pick<                          
+      259 +    VoiceNoteRow,                                             
+      260 +    'id' | 'audio_url' | 'duration' | 'created_at' | 'reaction
+          +_total' | 'reaction_counts'                                   
+      261 +  >[];                                                        
+      262 +  const notes: UserNote[] = rows.map((n) => ({                
+      263 +    id: n.id,                                                 
+      264 +    audio_url: n.audio_url,                                   
+      265 +    duration: n.duration,                                     
+      266 +    created_at: n.created_at,                                 
+      267 +    reactionCounts: n.reaction_counts ?? {},                  
+      268 +    reactionTotal: n.reaction_total ?? 0,                     
+      269 +  }));                                                        
+      270 +                                                              
+      271 +  const nextCursor = rows.length === size ? rows[rows.length -
+          + 1].created_at : null;                                        
+      272 +  return { notes, nextCursor, hasMore: nextCursor !== null }; 
+      273  }
+      274  
+      239 -// Aggregate profile stats: total notes + total reactions rece
+          -ived.                                                         
+      275 +// Aggregate profile stats via the server-side RPC (migration 
+          +0007): total notes                                            
+      276 +// + total reactions received, without pulling any note rows. 
+      277  export async function fetchProfileStats(userId: string): Promi
+           se<ProfileStats> {
+      241 -  const notes = await fetchUserNotes(userId);                 
+      242 -  const totalNotes = notes.length;                            
+      243 -  const totalReactions = notes.reduce((sum, n) => sum + (n.rea
+          -ctions?.length ?? 0), 0);                                     
+      244 -  return { totalNotes, totalReactions, notes };               
+      278 +  const { data, error } = await supabase.rpc('user_note_stats'
+          +, { target_user_id: userId });                                
+      279 +  if (error) throw new Error(error.message);                  
+      280 +  const row = Array.isArray(data) ? data[0] : data;           
+      281 +  return {                                                    
+      282 +    totalNotes: row?.note_count ?? 0,                         
+      283 +    totalReactions: row?.reaction_count ?? 0,                 
+      284 +  };                                                          
+      285  }
+
+  Thought for 6s (ctrl+o to expand)
+
+● Now social.ts fetchPublicProfile used fetchUserNotes. Rewrite to use RPC +
+  drop notes.
+
+● Update(src/lib/social.ts)
+  ⎿  Added 1 line, removed 1 line
+      1 -import { fetchUserNotes } from './notes';                       
+      1 +import { fetchProfileStats } from './notes';                    
+      2  import { supabase } from './supabase';
+      3  import type { FollowDirection, FollowPage, FollowUser, PublicPro
+         file } from '../types';
+      4  
+
+● Update(src/lib/social.ts)
+  ⎿  Added 29 lines, removed 37 lines
+      135    return { users, nextCursor, hasMore: nextCursor !== null };
+      136  }
+      137  
+      138 -// Everything the public profile screen needs in one bundle:  
+      139 -//   { username, notes, totalNotes, totalReactions,           
+      138 +// The public profile header bundle (counts + follow state). T
+          +he note LIST is                                               
+      139 +// fetched + paginated separately by the screen (fetchUserNote
+          +sPage).                                                       
+      140 +//   { username, totalNotes, totalReactions,                  
+      141  //     followerCount, followingCount, isFollowing, isSelf }
+      142  export async function fetchPublicProfile(
+      143    userId: string,
+     ...
+      145  ): Promise<PublicProfile> {
+      146    const isSelf = userId === viewerId;
+      147  
+      147 -  // Username (users RLS is self-only → read via the security-
+          -definer view).                                                
+      148 -  const { data: nameRow, error: nErr } = await supabase       
+      149 -    .from('public_usernames')                                 
+      150 -    .select('username')                                       
+      151 -    .eq('id', userId)                                         
+      152 -    .maybeSingle();                                           
+      148 +  // Username, note/reaction stats (RPC), graph counts, and th
+          +e viewer's follow                                             
+      149 +  // edge — all in parallel. No note rows pulled here.        
+      150 +  const [                                                     
+      151 +    { data: nameRow, error: nErr },                           
+      152 +    stats,                                                    
+      153 +    { count: followerCount, error: fErr },                    
+      154 +    { count: followingCount, error: gErr },                   
+      155 +    edgeRes,                                                  
+      156 +  ] = await Promise.all([                                     
+      157 +    supabase.from('public_usernames').select('username').eq('i
+          +d', userId).maybeSingle(),                                    
+      158 +    fetchProfileStats(userId),                                
+      159 +    supabase.from('follows').select('*', { count: 'exact', hea
+          +d: true }).eq('followee_id', userId),                         
+      160 +    supabase.from('follows').select('*', { count: 'exact', hea
+          +d: true }).eq('follower_id', userId),                         
+      161 +    isSelf                                                    
+      162 +      ? Promise.resolve(null)                                 
+      163 +      : supabase                                              
+      164 +          .from('follows')                                    
+      165 +          .select('follower_id')                              
+      166 +          .eq('follower_id', viewerId)                        
+      167 +          .eq('followee_id', userId)                          
+      168 +          .maybeSingle(),                                     
+      169 +  ]);                                                         
+      170    if (nErr) throw new Error(nErr.message);
+      154 -                                                              
+      155 -  // Notes + reaction totals (reuse the same shape My Notes / 
+          -Profile use).                                                 
+      156 -  const notes = await fetchUserNotes(userId);                 
+      157 -  const totalNotes = notes.length;                            
+      158 -  const totalReactions = notes.reduce((sum, n) => sum + (n.rea
+          -ctions?.length ?? 0), 0);                                     
+      159 -                                                              
+      160 -  // Graph counts. head:true + count:'exact' returns the count
+          - without rows.                                                
+      161 -  const [{ count: followerCount, error: fErr }, { count: follo
+          -wingCount, error: gErr }] =                                   
+      162 -    await Promise.all([                                       
+      163 -      supabase.from('follows').select('*', { count: 'exact', h
+          -ead: true }).eq('followee_id', userId),                       
+      164 -      supabase.from('follows').select('*', { count: 'exact', h
+          -ead: true }).eq('follower_id', userId),                       
+      165 -    ]);                                                       
+      171    if (fErr) throw new Error(fErr.message);
+      172    if (gErr) throw new Error(gErr.message);
+      173 +  if (edgeRes?.error) throw new Error(edgeRes.error.message); 
+      174  
+      169 -  // Does the viewer already follow this user?                
+      170 -  let isFollowing = false;                                    
+      171 -  if (!isSelf) {                                              
+      172 -    const { data: edge, error: eErr } = await supabase        
+      173 -      .from('follows')                                        
+      174 -      .select('follower_id')                                  
+      175 -      .eq('follower_id', viewerId)                            
+      176 -      .eq('followee_id', userId)                              
+      177 -      .maybeSingle();                                         
+      178 -    if (eErr) throw new Error(eErr.message);                  
+      179 -    isFollowing = !!edge;                                     
+      180 -  }                                                           
+      181 -                                                              
+      175    return {
+      176      username: nameRow?.username ?? 'ANON',
+      184 -    notes,                                                    
+      185 -    totalNotes,                                               
+      186 -    totalReactions,                                           
+      177 +    totalNotes: stats.totalNotes,                             
+      178 +    totalReactions: stats.totalReactions,                     
+      179      followerCount: followerCount ?? 0,
+      180      followingCount: followingCount ?? 0,
+      189 -    isFollowing,                                              
+      181 +    isFollowing: !!edgeRes?.data,                             
+      182      isSelf,
+      183    };
+      184  }
+
+  Thought for 7s (ctrl+o to expand)
+
+● Now VoiceNoteCard static mode used reactions: ReactionRow[]. Switch to
+  reactionCounts/reactionTotal.
+
+● Update(src/components/VoiceNoteCard.tsx)
+  ⎿  Added 1 line, removed 1 line
+      1  import { Pressable, Text, View } from 'react-native';
+      2  
+      3  import { brutalistShadow, colors, radius, REACTION_EMOJIS } from
+          '../theme';
+      4 -import type { ReactionCounts, ReactionEmoji, ReactionRow } from 
+        -'../types';                                                     
+      4 +import type { ReactionCounts, ReactionEmoji } from '../types';  
+      5  import AudioPlayer from './AudioPlayer';
+      6  import { Card, IconButton, Label, Monogram } from './ui';
+      7  
+
+● Update(src/components/VoiceNoteCard.tsx)
+  ⎿  Added 5 lines, removed 13 lines
+      18    return `${d}D AGO`;
+      19  }
+      20  
+      21 -// Collapse a reactions array into "🔥×3 💙×1" summary parts.  
+      22 -export function summarizeReactions(reactions: ReactionRow[] = [
+         -]): string[] {                                                 
+      23 -  const counts: ReactionCounts = {};                           
+      24 -  for (const r of reactions) counts[r.emoji] = (counts[r.emoji]
+         - ?? 0) + 1;                                                    
+      25 -  return Object.entries(counts).map(([emoji, count]) => `${emoj
+         -i}×${count}`);                                                 
+      26 -}                                                              
+      27 -                                                               
+      28 -// Top-N emoji by count, for the static summary chips (lists). 
+      29 -function topReactions(reactions: ReactionRow[] = [], n = 3): { 
+         -emoji: ReactionEmoji; count: number }[] {                      
+      30 -  const counts: ReactionCounts = {};                           
+      31 -  for (const r of reactions) counts[r.emoji] = (counts[r.emoji]
+         - ?? 0) + 1;                                                    
+      21 +// Top-N emoji by count from a reaction-counts aggregate, for t
+         +he static                                                      
+      22 +// summary chips (lists).                                      
+      23 +function topReactions(counts: ReactionCounts = {}, n = 3): { em
+         +oji: ReactionEmoji; count: number }[] {                        
+      24    return Object.entries(counts)
+      33 -    .sort((a, b) => b[1] - a[1])                               
+      25 +    .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))                 
+      26      .slice(0, n)
+      35 -    .map(([emoji, count]) => ({ emoji: emoji as ReactionEmoji, 
+         -count }));                                                     
+      27 +    .map(([emoji, count]) => ({ emoji: emoji as ReactionEmoji, 
+         +count: count ?? 0 }));                                         
+      28  }
+      29  
+      30  // A voice note card: monogram + speaker label + time, playable
+           waveform, and
+
+  Thought for 4s (ctrl+o to expand)
+● Check summarizeReactions usage before removing.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● summarizeReactions unused elsewhere — removed OK. Now update card props +
+  render.
+
+● Update(src/components/VoiceNoteCard.tsx)
+  ⎿  Added 6 lines, removed 5 lines
+      32  //
+      33  // Props:
+      34  //   title, createdAt, durationSec, audioUrl, onStart, onFinish
+           — base card.
+      35 -//   reactions          — static summary mode: array of { emoji
+         - }.                                                            
+      35  //   reactionCounts/total/myReaction/onReact — interactive mode
+           (feed).
+      36 +//   reactionCounts/staticTotal — static summary mode (profile 
+         +/ my-notes lists);                                             
+      37 +//     pass counts WITHOUT onReact to render read-only chips.  
+      38  //   onDelete           — when set, renders a delete control (M
+          y Notes).
+      39  //   reactionDisabled   — locks the interactive strip while a r
+          equest is inflight.
+      40  //   own                — paints the monogram lime (the viewer'
+          s own broadcast).
+     ...
+      44    createdAt: string;
+      45    durationSec?: number | null;
+      46    audioUrl: string | null;
+      46 -  reactions?: ReactionRow[];                                   
+      47    reactionCounts?: ReactionCounts;
+      48    total?: number;
+      49 +  staticTotal?: number;                                        
+      50    myReaction?: ReactionEmoji | null;
+      51    onReact?: (emoji: ReactionEmoji) => void;
+      52    reactionDisabled?: boolean;
+     ...
+      62    createdAt,
+      63    durationSec,
+      64    audioUrl,
+      64 -  reactions,                                                   
+      65    reactionCounts,
+      66    total,
+      67 +  staticTotal,                                                 
+      68    myReaction,
+      69    onReact,
+      70    reactionDisabled,
+     ...
+      75    onPressAuthor,
+      76  }: VoiceNoteCardProps) {
+      77    const interactive = typeof onReact === 'function';
+      77 -  const top = reactions ? topReactions(reactions) : null;      
+      78 -  const reactionTotal = reactions ? reactions.length : null;   
+      78 +  const top = !interactive && reactionCounts ? topReactions(rea
+         +ctionCounts) : null;                                           
+      79 +  const reactionTotal = staticTotal ?? null;                   
+      80  
+      81    // Monogram + speaker name. Tappable when onPressAuthor is se
+          t (→ profile).
+      82    const author = (
+
+● Now update 3 screens using reactions={item.reactions} →
+  reactionCounts/staticTotal. Profile + UserProfile also need pagination rework.
+  Start with card-prop swaps.
+
+● Update(src/screens/MyNotesScreen.tsx)
+  ⎿  Added 2 lines, removed 1 line
+      130                createdAt={item.created_at}
+      131                durationSec={item.duration}
+      132                audioUrl={item.audio_url}
+      133 -              reactions={item.reactions}                      
+      133 +              reactionCounts={item.reactionCounts}            
+      134 +              staticTotal={item.reactionTotal}                
+      135                onDelete={deletingId === item.id ? undefined : (
+           ) => { setDeleteError(null); setPendingDelete(item); }}
+      136              />
+      137            )}
+
+● Now MyNotesScreen fetch + sort/total use .reactions.length. It uses
+  fetchUserNotes (removed) and computes total client-side. Rework to paginate +
+  use reactionTotal. This screen shows all own notes with delete; needs infinite
+  scroll now.
+
+● Update(src/screens/MyNotesScreen.tsx)
+  ⎿  Added 45 lines, removed 11 lines
+      1  import { useFocusEffect, useRouter } from 'expo-router';
+      2 -import { useCallback, useMemo, useState } from 'react';         
+      2 +import { useCallback, useMemo, useRef, useState } from 'react'; 
+      3  import { ActivityIndicator, FlatList, View } from 'react-native'
+         ;
+      4  import { SafeAreaView } from 'react-native-safe-area-context';
+      5  
+     ...
+       7  import VoiceNoteCard from '../components/VoiceNoteCard';
+       8  import { Body, ConfirmModal, Display, Label, Rule, Segmented, S
+          ignalButton, StatCard } from '../components/ui';
+       9  import { useAuth } from '../context/AuthContext';
+      10 -import { deleteNote, fetchUserNotes } from '../lib/notes';     
+      10 +import { deleteNote, fetchProfileStats, fetchUserNotesPage } fr
+         +om '../lib/notes';                                             
+      11  import { colors, space } from '../theme';
+      12 -import type { UserNote } from '../types';                      
+      12 +import type { ProfileStats, UserNote } from '../types';        
+      13  
+      14  const SORTS = [
+      15    { value: 'new' as const, label: 'NEWEST' },
+      16    { value: 'top' as const, label: 'TOP' },
+      17  ];
+      18  
+      19 -// Lists all of the current user's broadcasts with reaction sum
+         -maries.                                                        
+      20 -// Each note can be deleted (removes the row, its reactions, an
+         -d the audio file).                                             
+      19 +// Lists the current user's broadcasts with reaction summaries,
+         + paged with                                                    
+      20 +// infinite scroll (no longer pulls the entire history at once)
+         +. Totals come                                                  
+      21 +// from the server-side stats RPC. Each note can be deleted (re
+         +moves the row,                                                 
+      22 +// its reactions, and the audio file).                         
+      23  export default function MyNotesScreen() {
+      24    const { user } = useAuth();
+      25    const router = useRouter();
+      26    const [notes, setNotes] = useState<UserNote[]>([]);
+      27 +  const [stats, setStats] = useState<ProfileStats>({ totalNotes
+         +: 0, totalReactions: 0 });                                     
+      28    const [loading, setLoading] = useState(true);
+      29 +  const [loadingMore, setLoadingMore] = useState(false);       
+      30 +  const [hasMore, setHasMore] = useState(true);                
+      31    const [error, setError] = useState<string | null>(null);
+      32    const [deletingId, setDeletingId] = useState<string | null>(n
+          ull);
+      33    const [pendingDelete, setPendingDelete] = useState<UserNote |
+           null>(null); // note awaiting confirm
+      34    const [deleteError, setDeleteError] = useState<string | null>
+          (null);
+      35    const [sort, setSort] = useState<'new' | 'top'>('new');
+      36  
+      37 +  const cursorRef = useRef<string | null>(null);               
+      38 +  const inFlight = useRef(false);                              
+      39 +                                                               
+      40    const load = useCallback(async () => {
+      41      setLoading(true);
+      42      setError(null);
+      43      try {
+      36 -      setNotes(await fetchUserNotes(user!.id));                
+      44 +      const [page, s] = await Promise.all([                    
+      45 +        fetchUserNotesPage({ userId: user!.id }),              
+      46 +        fetchProfileStats(user!.id),                           
+      47 +      ]);                                                      
+      48 +      setNotes(page.notes);                                    
+      49 +      cursorRef.current = page.nextCursor;                     
+      50 +      setHasMore(page.hasMore);                                
+      51 +      setStats(s);                                             
+      52      } catch (e: unknown) {
+      53        setError(e instanceof Error ? e.message : String(e));
+      54      } finally {
+     ...
+      56      }
+      57    }, [user]);
+      58  
+      59 +  const loadMore = useCallback(async () => {                   
+      60 +    if (inFlight.current || !hasMore || loading) return;       
+      61 +    inFlight.current = true;                                   
+      62 +    setLoadingMore(true);                                      
+      63 +    try {                                                      
+      64 +      const page = await fetchUserNotesPage({ userId: user!.id,
+         + before: cursorRef.current });                                 
+      65 +      setNotes((prev) => {                                     
+      66 +        const seen = new Set(prev.map((n) => n.id));           
+      67 +        return [...prev, ...page.notes.filter((n) => !seen.has(
+         +n.id))];                                                       
+      68 +      });                                                      
+      69 +      cursorRef.current = page.nextCursor;                     
+      70 +      setHasMore(page.hasMore);                                
+      71 +    } catch (e: unknown) {                                     
+      72 +      setError(e instanceof Error ? e.message : String(e));    
+      73 +    } finally {                                                
+      74 +      inFlight.current = false;                                
+      75 +      setLoadingMore(false);                                   
+      76 +    }                                                          
+      77 +  }, [user, hasMore, loading]);                                
+      78 +                                                               
+      79    // Refetch when the screen regains focus (e.g. after posting)
+          .
+      80    useFocusEffect(useCallback(() => { load(); }, [load]));
+      81  
+      47 -  const totalReactions = useMemo(                              
+      48 -    () => notes.reduce((sum, n) => sum + (n.reactions?.length ?
+         -? 0), 0),                                                      
+      49 -    [notes]                                                    
+      50 -  );                                                           
+      82 +  const totalReactions = stats.totalReactions;                 
+      83  
+      84 +  // NOTE: "TOP" sorts only the pages loaded so far (keyset pag
+         +ing is by time).                                               
+      85 +  // A full top-sort would need a server-side ordering; accepta
+         +ble for the list.                                              
+      86    const visible = useMemo(() => {
+      53 -    if (sort === 'top') return [...notes].sort((a, b) => (b.rea
+         -ctions?.length ?? 0) - (a.reactions?.length ?? 0));            
+      87 +    if (sort === 'top') return [...notes].sort((a, b) => b.reac
+         +tionTotal - a.reactionTotal);                                  
+      88      return notes;
+      89    }, [notes, sort]);
+      90  
+
+● Now update MyNotes StatCards + FlatList (onEndReached, footer). notes.length →
+  stats.totalNotes.
+
+● Update(src/screens/MyNotesScreen.tsx)
+  ⎿  Added 3 lines, removed 3 lines
+      134                </View>
+      135  
+      136                <View style={{ flexDirection: 'row', gap: 16 }}>
+      137 -                <StatCard value={notes.length} label="NOTES" /
+          ->                                                             
+      137 +                <StatCard value={stats.totalNotes} label="NOTE
+          +S" />                                                         
+      138                  <StatCard value={totalReactions} label="REACTI
+           ONS" accent={totalReactions > 0} />
+      139                </View>
+      140  
+      141                <Rule />
+      142  
+      143 -              {notes.length > 0 && (                          
+      143 +              {stats.totalNotes > 0 && (                      
+      144                  <View style={{ flexDirection: 'row', alignItem
+           s: 'center', justifyContent: 'space-between', gap: 16 }}>
+      145 -                  <Label muted>{notes.length} BROADCAST{notes.
+          -length === 1 ? '' : 'S'}</Label>                              
+      145 +                  <Label muted>{stats.totalNotes} BROADCAST{st
+          +ats.totalNotes === 1 ? '' : 'S'}</Label>                      
+      146                    <Segmented options={SORTS} value={sort} onCh
+           ange={setSort} style={{ width: 200 }} />
+      147                  </View>
+      148                )}
+
+● Add onEndReached + footer to MyNotes FlatList.
+
+● Update(src/screens/MyNotesScreen.tsx)
+  ⎿  Added 9 lines
+      124          <FlatList
+      125            data={visible}
+      126            keyExtractor={(item) => item.id}
+      127 +          onEndReached={sort === 'new' ? loadMore : undefined}
+      128 +          onEndReachedThreshold={0.5}                         
+      129            contentContainerStyle={{ padding: space.containerPad
+           ding, gap: space.elementGap, paddingBottom: 48 }}
+      130 +          ListFooterComponent={                               
+      131 +            loadingMore ? (                                   
+      132 +              <View style={{ paddingVertical: 24 }}>          
+      133 +                <ActivityIndicator color={colors.ink} />      
+      134 +              </View>                                         
+      135 +            ) : null                                          
+      136 +          }                                                   
+      137            ListHeaderComponent={
+      138              <View style={{ marginBottom: space.elementGap, gap
+           : 20 }}>
+      139                <View>
+
+  Thought for 5s (ctrl+o to expand)
+
+● Now ProfileScreen — used fetchProfileStats returning .notes. Rework: separate
+  paginated notes + stats.
+
+● Update(src/screens/ProfileScreen.tsx)
+  ⎿  Added 37 lines, removed 5 lines
+      1  import { useFocusEffect, useRouter } from 'expo-router';
+      2 -import { useCallback, useState } from 'react';                  
+      2 +import { useCallback, useRef, useState } from 'react';          
+      3  import { ActivityIndicator, FlatList, View } from 'react-native'
+         ;
+      4  import { SafeAreaView } from 'react-native-safe-area-context';
+      5  
+     ...
+       7  import VoiceNoteCard from '../components/VoiceNoteCard';
+       8  import { Body, Display, Label, Monogram, Rule, SecondaryButton,
+           SignalButton, StatCard } from '../components/ui';
+       9  import { useAuth } from '../context/AuthContext';
+      10 -import { fetchProfileStats } from '../lib/notes';              
+      10 +import { fetchProfileStats, fetchUserNotesPage } from '../lib/n
+         +otes';                                                         
+      11  import { fetchFollowCounts } from '../lib/social';
+      12  import { colors, space } from '../theme';
+      13 -import type { ProfileStats } from '../types';                  
+      13 +import type { ProfileStats, UserNote } from '../types';        
+      14  
+      15  // Profile: identity block, stat cards, note list, record + log
+          out actions.
+      16 +// Totals come from the server-side stats RPC; the note list is
+         + paginated with                                                
+      17 +// infinite scroll rather than pulling the whole history.      
+      18  export default function ProfileScreen() {
+      19    const { user, profile, signOut } = useAuth();
+      20    const router = useRouter();
+      19 -  const [stats, setStats] = useState<ProfileStats>({ totalNotes
+         -: 0, totalReactions: 0, notes: [] });                          
+      21 +  const [stats, setStats] = useState<ProfileStats>({ totalNotes
+         +: 0, totalReactions: 0 });                                     
+      22 +  const [notes, setNotes] = useState<UserNote[]>([]);          
+      23    const [counts, setCounts] = useState({ followerCount: 0, foll
+          owingCount: 0 });
+      24    const [loading, setLoading] = useState(true);
+      25 +  const [loadingMore, setLoadingMore] = useState(false);       
+      26 +  const [hasMore, setHasMore] = useState(true);                
+      27    const [error, setError] = useState<string | null>(null);
+      28  
+      29 +  const cursorRef = useRef<string | null>(null);               
+      30 +  const inFlight = useRef(false);                              
+      31 +                                                               
+      32    const load = useCallback(async () => {
+      33      setLoading(true);
+      34      setError(null);
+      35      try {
+      28 -      const [s, c] = await Promise.all([                       
+      36 +      const [s, c, page] = await Promise.all([                 
+      37          fetchProfileStats(user!.id),
+      38          fetchFollowCounts(user!.id),
+      39 +        fetchUserNotesPage({ userId: user!.id }),              
+      40        ]);
+      41        setStats(s);
+      42        setCounts(c);
+      43 +      setNotes(page.notes);                                    
+      44 +      cursorRef.current = page.nextCursor;                     
+      45 +      setHasMore(page.hasMore);                                
+      46      } catch (e: unknown) {
+      47        setError(e instanceof Error ? e.message : String(e));
+      48      } finally {
+     ...
+      50      }
+      51    }, [user]);
+      52  
+      53 +  const loadMore = useCallback(async () => {                   
+      54 +    if (inFlight.current || !hasMore || loading) return;       
+      55 +    inFlight.current = true;                                   
+      56 +    setLoadingMore(true);                                      
+      57 +    try {                                                      
+      58 +      const page = await fetchUserNotesPage({ userId: user!.id,
+         + before: cursorRef.current });                                 
+      59 +      setNotes((prev) => {                                     
+      60 +        const seen = new Set(prev.map((n) => n.id));           
+      61 +        return [...prev, ...page.notes.filter((n) => !seen.has(
+         +n.id))];                                                       
+      62 +      });                                                      
+      63 +      cursorRef.current = page.nextCursor;                     
+      64 +      setHasMore(page.hasMore);                                
+      65 +    } catch (e: unknown) {                                     
+      66 +      setError(e instanceof Error ? e.message : String(e));    
+      67 +    } finally {                                                
+      68 +      inFlight.current = false;                                
+      69 +      setLoadingMore(false);                                   
+      70 +    }                                                          
+      71 +  }, [user, hasMore, loading]);                                
+      72 +                                                               
+      73    const openFollows = useCallback(
+      74      (direction: 'followers' | 'following') => {
+      75        router.push({
+
+● Update(src/screens/ProfileScreen.tsx)
+  ⎿  Added 3 lines, removed 1 line
+      88      <SafeAreaView style={{ flex: 1, backgroundColor: colors.sur
+          face }} edges={['top']}>
+      89        <AppHeader />
+      90        <FlatList
+      91 -        data={stats.notes}                                     
+      91 +        data={notes}                                           
+      92          keyExtractor={(item) => item.id}
+      93 +        onEndReached={loadMore}                                
+      94 +        onEndReachedThreshold={0.5}                            
+      95          contentContainerStyle={{ padding: space.containerPaddin
+          g, gap: space.elementGap, paddingBottom: 48 }}
+      96          ListHeaderComponent={
+      97            <View style={{ gap: space.elementGap, marginBottom: s
+          pace.elementGap }}>
+
+● Update(src/screens/ProfileScreen.tsx)
+  ⎿  Added 4 lines, removed 2 lines
+      136              createdAt={item.created_at}
+      137              durationSec={item.duration}
+      138              audioUrl={item.audio_url}
+      139 -            reactions={item.reactions}                        
+      139 +            reactionCounts={item.reactionCounts}              
+      140 +            staticTotal={item.reactionTotal}                  
+      141            />
+      142          )}
+      143          ListFooterComponent={
+      143 -          <View style={{ marginTop: space.sectionMargin }}>   
+      144 +          <View style={{ marginTop: space.sectionMargin, gap: 
+          +space.elementGap }}>                                          
+      145 +            {loadingMore && <ActivityIndicator color={colors.i
+          +nk} />}                                                       
+      146              {/* Logout is the secondary action — bordered whit
+           e, not the lime accent. */}
+      147              <SecondaryButton label="LOG OUT" onPress={signOut}
+            />
+      148            </View>
+
+● Now UserProfileScreen — data.notes removed. Needs separate paginated notes
+  fetch.
+
+● Update(src/screens/UserProfileScreen.tsx)
+  ⎿  Added 3 lines, removed 2 lines
+       1  import { useFocusEffect, useLocalSearchParams, useRouter } from
+           'expo-router';
+       2 -import { useCallback, useState } from 'react';                 
+       2 +import { useCallback, useRef, useState } from 'react';         
+       3  import { ActivityIndicator, FlatList, View } from 'react-native
+          ';
+       4  import { SafeAreaView } from 'react-native-safe-area-context';
+       5  
+       6  import VoiceNoteCard from '../components/VoiceNoteCard';
+       7  import { Body, Display, IconButton, Label, Monogram, Rule, Seco
+          ndaryButton, SignalButton, StatCard } from '../components/ui';
+       8  import { useAuth } from '../context/AuthContext';
+       9 +import { fetchUserNotesPage } from '../lib/notes';             
+      10  import { fetchPublicProfile, follow, unfollow } from '../lib/so
+          cial';
+      11  import { colors, space } from '../theme';
+      11 -import type { PublicProfile } from '../types';                 
+      12 +import type { PublicProfile, UserNote } from '../types';       
+      13  
+      14  // Public profile for any user: identity, follower/following/no
+          tes counts, a
+      15  // follow/unfollow control, and their broadcasts. Reached by ta
+          pping an author
+
+● Update(src/screens/UserProfileScreen.tsx)
+  ⎿  Added 34 lines, removed 1 line
+      21    const router = useRouter();
+      22  
+      23    const [data, setData] = useState<PublicProfile | null>(null);
+      24 +  const [notes, setNotes] = useState<UserNote[]>([]);          
+      25    const [loading, setLoading] = useState(true);
+      26 +  const [loadingMore, setLoadingMore] = useState(false);       
+      27 +  const [hasMore, setHasMore] = useState(true);                
+      28    const [error, setError] = useState<string | null>(null);
+      29    const [pending, setPending] = useState(false); // follow requ
+          est inflight
+      30  
+      31 +  const cursorRef = useRef<string | null>(null);               
+      32 +  const inFlight = useRef(false);                              
+      33 +                                                               
+      34    const load = useCallback(async () => {
+      35      setLoading(true);
+      36      setError(null);
+      37      try {
+      32 -      setData(await fetchPublicProfile(userId!, user!.id));    
+      38 +      const [profile, page] = await Promise.all([              
+      39 +        fetchPublicProfile(userId!, user!.id),                 
+      40 +        fetchUserNotesPage({ userId: userId! }),               
+      41 +      ]);                                                      
+      42 +      setData(profile);                                        
+      43 +      setNotes(page.notes);                                    
+      44 +      cursorRef.current = page.nextCursor;                     
+      45 +      setHasMore(page.hasMore);                                
+      46      } catch (e: unknown) {
+      47        setError(e instanceof Error ? e.message : String(e));
+      48      } finally {
+     ...
+      50      }
+      51    }, [userId, user]);
+      52  
+      53 +  const loadMore = useCallback(async () => {                   
+      54 +    if (inFlight.current || !hasMore || loading) return;       
+      55 +    inFlight.current = true;                                   
+      56 +    setLoadingMore(true);                                      
+      57 +    try {                                                      
+      58 +      const page = await fetchUserNotesPage({ userId: userId!, 
+         +before: cursorRef.current });                                  
+      59 +      setNotes((prev) => {                                     
+      60 +        const seen = new Set(prev.map((n) => n.id));           
+      61 +        return [...prev, ...page.notes.filter((n) => !seen.has(
+         +n.id))];                                                       
+      62 +      });                                                      
+      63 +      cursorRef.current = page.nextCursor;                     
+      64 +      setHasMore(page.hasMore);                                
+      65 +    } catch (e: unknown) {                                     
+      66 +      setError(e instanceof Error ? e.message : String(e));    
+      67 +    } finally {                                                
+      68 +      inFlight.current = false;                                
+      69 +      setLoadingMore(false);                                   
+      70 +    }                                                          
+      71 +  }, [userId, hasMore, loading]);                              
+      72 +                                                               
+      73    useFocusEffect(useCallback(() => { load(); }, [load]));
+      74  
+      75    // Open the followers/following list for this user, seeded to
+           the tapped tab.
+
+● Update(src/screens/UserProfileScreen.tsx)
+  ⎿  Added 10 lines, removed 1 line
+      129          </View>
+      130        ) : (
+      131          <FlatList
+      132 -          data={data?.notes ?? []}                            
+      132 +          data={notes}                                        
+      133            keyExtractor={(item) => item.id}
+      134 +          onEndReached={loadMore}                             
+      135 +          onEndReachedThreshold={0.5}                         
+      136            contentContainerStyle={{ padding: space.containerPad
+           ding, gap: space.elementGap, paddingBottom: 48 }}
+      137 +          ListFooterComponent={                               
+      138 +            loadingMore ? (                                   
+      139 +              <View style={{ paddingVertical: 24 }}>          
+      140 +                <ActivityIndicator color={colors.ink} />      
+      141 +              </View>                                         
+      142 +            ) : null                                          
+      143 +          }                                                   
+      144            ListHeaderComponent={
+      145              <View style={{ gap: space.elementGap, marginBottom
+           : space.elementGap }}>
+      146                {/* Identity. Monogram lime only when following 
+           is NOT the focal
+
+● Update(src/screens/UserProfileScreen.tsx)
+  ⎿  Added 2 lines, removed 1 line
+      190                createdAt={item.created_at}
+      191                durationSec={item.duration}
+      192                audioUrl={item.audio_url}
+      193 -              reactions={item.reactions}                      
+      193 +              reactionCounts={item.reactionCounts}            
+      194 +              staticTotal={item.reactionTotal}                
+      195              />
+      196            )}
+      197          />
+
+● Task 3 done. Typecheck now before more.
+
+  Thought for 7s, ran 1 shell command (ctrl+o to expand)
+
+● Missing UserNotePage import in notes.ts (cascades to the n:any).
+
+● Update(src/lib/notes.ts)
+  ⎿  Added 1 line
+       8    ReactionCounts,
+       9    ReactionEmoji,
+      10    UserNote,
+      11 +  UserNotePage,                                                
+      12    VoiceNoteRow,
+      13  } from '../types';
+      14  
+
+  Ran 1 shell command (ctrl+o to expand)
+● Clean. Task 3 done. Now task 2: realtime feed.
+
+  Thought for 13s (ctrl+o to expand)
+
+● Migration: add voice_notes to realtime publication.
+
+● Write(supabase/migrations/0008_realtime_feed.sql)
+  ⎿  Wrote 25 lines to supabase/migrations/0008_realtime_feed.sql
+       1 -- Signal — enable realtime on the feed.
+         t or a reaction
+       3 -- was invisible until the viewer pulled to refresh. At 100+ act
+       4 -- feed is always behind.
+       5 --
+         the client can
+       7 -- subscribe to INSERTs (new broadcasts) and UPDATEs (reaction a
+       8 -- migration 0006's trigger). REPLICA IDENTITY FULL so UPDATE pa
+         yloads carry the
+      10 --
+     … +22 lines (ctrl+o to expand)
+
+  Thought for 12s (ctrl+o to expand)
+
+● Add fetchNoteById helper (decorate one note for realtime insert).
+
+● Update(src/lib/notes.ts)
+  ⎿  Added 16 lines
+      156    return { notes, nextCursor, hasMore: nextCursor !== null };
+      157  }
+      158  
+      159 +// Fetch a single feed note, fully decorated (author + viewer'
+          +s reaction). Used                                             
+      160 +// by the realtime subscription to hydrate a note that arrived
+          + via an INSERT                                                
+      161 +// event (the raw payload lacks the author username). Returns 
+          +null if the note                                              
+      162 +// no longer exists.                                          
+      163 +export async function fetchNoteById(noteId: string, viewerId: 
+          +string): Promise<FeedNote | null> {                           
+      164 +  const { data, error } = await supabase                      
+      165 +    .from('voice_notes')                                      
+      166 +    .select(FEED_COLUMNS)                                     
+      167 +    .eq('id', noteId)                                         
+      168 +    .maybeSingle();                                           
+      169 +  if (error) throw new Error(error.message);                  
+      170 +  if (!data) return null;                                     
+      171 +  const [note] = await decorateNotes([data as FeedRow], viewer
+          +Id);                                                          
+      172 +  return note ?? null;                                        
+      173 +}                                                             
+      174 +                                                              
+      175  // Toggle a reaction for a note. One reaction per user per not
+           e:
+      176  //   - no current reaction       → insert `emoji`
+      177  //   - same emoji tapped again   → remove it
+
+  Thought for 12s (ctrl+o to expand)
+
+● Wire realtime into useFeed. INSERT prepend (everyone scope), UPDATE patches
+  counts on visible notes preserving viewer's own reaction.
+
+● Update(src/hooks/useFeed.ts)
+  ⎿  Added 3 lines, removed 2 lines
+      1  import { useCallback, useEffect, useRef, useState } from 'react'
+         ;
+      2  
+      3  import { useAuth } from '../context/AuthContext';
+      4 -import { fetchFeedPage, toggleReaction } from '../lib/notes';   
+      5 -import type { FeedNote, FeedScope, ReactionEmoji } from '../type
+        -s';                                                             
+      4 +import { fetchFeedPage, fetchNoteById, toggleReaction } from '..
+        +/lib/notes';                                                    
+      5 +import { supabase } from '../lib/supabase';                     
+      6 +import type { FeedNote, FeedScope, ReactionCounts, ReactionEmoji
+        +, VoiceNoteRow } from '../types';                               
+      7  
+      8  // Drives the global Home Feed: every user's voice notes, newest
+          first, paged 10
+      9  // at a time with infinite scroll. Reacting updates a note in pl
+         ace (count +
+
+  Thought for 8s (ctrl+o to expand)
+
+● Add realtime effect. Use refs to avoid resubscribe churn. Handle INSERT
+  (prepend) + UPDATE (patch aggregates, keep viewer's own reaction).
+
+● Update(src/hooks/useFeed.ts)
+  ⎿  Added 2 lines
+      19  
+      20    const cursorRef = useRef<string | null>(null); // created_at 
+          of last loaded note (keyset)
+      21    const inFlight = useRef(false); // guards overlapping paginat
+          ion calls
+      22 +  const notesRef = useRef<FeedNote[]>([]); // latest notes, for
+         + the realtime handler                                          
+      23 +  notesRef.current = notes;                                    
+      24  
+      25    // Load the first page (fresh). Used on mount and pull-to-ref
+          resh.
+      26    const load = useCallback(
+
+● Update(src/hooks/useFeed.ts)
+  ⎿  Added 56 lines
+       78      load();
+       79    }, [load]);
+       80  
+       81 +  // Realtime: keep the feed live without a manual refresh.   
+       82 +  //   INSERT — a new broadcast: hydrate it (author + viewer r
+          +eaction) and prepend                                          
+       83 +  //            if it belongs in this scope and isn't already 
+          +shown.                                                        
+       84 +  //   UPDATE — reaction aggregates changed (migration 0006 tr
+          +igger): patch the                                             
+       85 +  //            visible card's counts/total in place, preservi
+          +ng the viewer's own                                           
+       86 +  //            reaction (which realtime doesn't carry per-vie
+          +wer).                                                         
+       87 +  useEffect(() => {                                           
+       88 +    if (!user) return;                                        
+       89 +    const viewerId = user.id;                                 
+       90 +                                                              
+       91 +    const channel = supabase                                  
+       92 +      .channel(`feed:${scope}:${viewerId}`)                   
+       93 +      .on(                                                    
+       94 +        'postgres_changes',                                   
+       95 +        { event: 'INSERT', schema: 'public', table: 'voice_not
+          +es' },                                                        
+       96 +        async (payload) => {                                  
+       97 +          const row = payload.new as VoiceNoteRow;            
+       98 +          // Own notes already appear via the post→navigate fl
+          +ow; skip to avoid dupes.                                      
+       99 +          if (row.user_id === viewerId) return;               
+      100 +          if (notesRef.current.some((n) => n.id === row.id)) r
+          +eturn;                                                        
+      101 +          try {                                               
+      102 +            const note = await fetchNoteById(row.id, viewerId)
+          +;                                                             
+      103 +            if (!note) return;                                
+      104 +            // 'following' scope: only surface authors the vie
+          +wer follows. The                                              
+      105 +            // note passes through fetchFeedPage's filter on n
+          +ext refresh; for the                                          
+      106 +            // live push, gate on whether we already track tha
+          +t author.                                                     
+      107 +            if (scope === 'following' && !notesRef.current.som
+          +e((n) => n.user_id === row.user_id)) {                        
+      108 +              return;                                         
+      109 +            }                                                 
+      110 +            setNotes((prev) => (prev.some((n) => n.id === note
+          +.id) ? prev : [note, ...prev]));                              
+      111 +          } catch {                                           
+      112 +            // Best-effort live update; a failed hydrate just 
+          +waits for refresh.                                            
+      113 +          }                                                   
+      114 +        }                                                     
+      115 +      )                                                       
+      116 +      .on(                                                    
+      117 +        'postgres_changes',                                   
+      118 +        { event: 'UPDATE', schema: 'public', table: 'voice_not
+          +es' },                                                        
+      119 +        (payload) => {                                        
+      120 +          const row = payload.new as VoiceNoteRow;            
+      121 +          setNotes((prev) =>                                  
+      122 +            prev.map((n) =>                                   
+      123 +              n.id === row.id                                 
+      124 +                ? { ...n, reactionCounts: (row.reaction_counts
+          + ?? {}) as ReactionCounts, total: row.reaction_total ?? 0 }   
+      125 +                : n                                           
+      126 +            )                                                 
+      127 +          );                                                  
+      128 +        }                                                     
+      129 +      )                                                       
+      130 +      .subscribe();                                           
+      131 +                                                              
+      132 +    return () => {                                            
+      133 +      supabase.removeChannel(channel);                        
+      134 +    };                                                        
+      135 +  }, [user, scope]);                                          
+      136 +                                                              
+      137    // React to a note. Optimistic: update counts + myReaction i
+           mmediately, roll
+      138    // back on failure. One reaction per user per note (toggle/s
+           witch/remove).
+      139    const react = useCallback(
+
+  Thought for 15s, ran 1 shell command (ctrl+o to expand)
+
+● Task 2 done. Task 4: moderation (block + report).
+
+● Write(supabase/migrations/0009_moderation.sql)
+  ⎿  Wrote 84 lines to supabase/migrations/0009_moderation.sql
+       1 -- Signal — moderation primitives: block + report.
+         gers had zero
+       3 -- moderation surface — no way to stop hearing an abuser, and no
+       4 -- content for takedown. This is the biggest social-scaling gap.
+       6 -- Adds:
+       7 --   blocks   — directed (blocker → blocked). Feeds/profiles fil
+       8 --              users. Enforced app-side + a helper for feed que
+         ries.
+         nsert-only for
+         of band.
+     … +96 lines (ctrl+o to expand)
+
+  Thought for 7s (ctrl+o to expand)
+
+● Moderation lib.
+
+● Write(src/lib/moderation.ts)
+  ⎿  Wrote 74 lines to src/lib/moderation.ts
+       1 import { supabase } from './supabase';
+       2 
+       4 // Moderation: blocks + reports (see migration 0009_moderation.s
+         ql)
+       5 // ─────────────────────────────────────────────────────────────
+       7 // The set of user ids `viewerId` blocks. Used to filter blocked
+          authors out of
+       8 // the feed. Returns string[]. Empty on no blocks.
+         <string[]> {
+      10   const { data, error } = await supabase
+     … +73 lines (ctrl+o to expand)
+
+  Thought for 7s (ctrl+o to expand)
+
+● Now filter blocked authors from feed. Update fetchFeedPage.
+
+● Update(src/lib/notes.ts)
+  ⎿  Added 1 line
+      1 +import { fetchBlockedIds } from './moderation';                 
+      2  import { fetchFollowingIds } from './social';
+      3  import { supabase, VOICE_NOTES_BUCKET } from './supabase';
+      4  import type {
+
+● Update(src/lib/notes.ts)  ⎿  Added 15 lines, removed 2 lines
+      132  }): Promise<FeedPage> {
+      133    const size = Math.min(limit, FEED_PAGE_SIZE);
+      134  
+      135 +  // Blocked authors are excluded from every scope. Following-
+          +scope also filters                                            
+      136 +  // to followed authors; combine (followed minus blocked) so 
+          +a blocked-but-                                                
+      137 +  // followed user never leaks through.                       
+      138 +  const [blockedIds, followingIds] = await Promise.all([      
+      139 +    fetchBlockedIds(viewerId),                                
+      140 +    scope === 'following' ? fetchFollowingIds(viewerId) : Prom
+          +ise.resolve<string[] | null>(null),                           
+      141 +  ]);                                                         
+      142 +                                                              
+      143    let authorIds: string[] | null = null;
+      144    if (scope === 'following') {
+      137 -    authorIds = await fetchFollowingIds(viewerId);            
+      138 -    // Nobody followed → nothing to show. Skip the query entir
+          -ely.                                                          
+      145 +    const blockedSet = new Set(blockedIds);                   
+      146 +    authorIds = (followingIds ?? []).filter((id) => !blockedSe
+          +t.has(id));                                                   
+      147 +    // Nobody followed (or all blocked) → nothing to show. Ski
+          +p the query.                                                  
+      148      if (authorIds.length === 0) return { notes: [], nextCursor
+           : null, hasMore: false };
+      149    }
+      150  
+     ...
+      154      .order('created_at', { ascending: false })
+      155      .limit(size);
+      156    if (authorIds) query = query.in('user_id', authorIds);
+      157 +  // 'everyone' scope: exclude blocked authors via a NOT-IN fi
+          +lter.                                                         
+      158 +  if (!authorIds && blockedIds.length > 0) {                  
+      159 +    query = query.not('user_id', 'in', `(${blockedIds.join(','
+          +)})`);                                                        
+      160 +  }                                                           
+      161    if (before) query = query.lt('created_at', before);
+      162  
+      163    const { data, error } = await query;
+
+  Thought for 7s (ctrl+o to expand)
+
+● Realtime INSERT could re-add a blocked author. Gate it. Add blocked-set fetch
+  in useFeed realtime effect.
+
+● Update(src/hooks/useFeed.ts)
+  ⎿  Added 1 line
+      1  import { useCallback, useEffect, useRef, useState } from 'react'
+         ;
+      2  
+      3  import { useAuth } from '../context/AuthContext';
+      4 +import { fetchBlockedIds } from '../lib/moderation';            
+      5  import { fetchFeedPage, fetchNoteById, toggleReaction } from '..
+         /lib/notes';
+      6  import { supabase } from '../lib/supabase';
+      7  import type { FeedNote, FeedScope, ReactionCounts, ReactionEmoji
+         , VoiceNoteRow } from '../types';
+
+● Update(src/hooks/useFeed.ts)
+  ⎿  Added 3 lines
+      100            if (row.user_id === viewerId) return;
+      101            if (notesRef.current.some((n) => n.id === row.id)) r
+           eturn;
+      102            try {
+      103 +            // Don't surface a blocked author's live broadcast
+          +.                                                             
+      104 +            const blocked = await fetchBlockedIds(viewerId);  
+      105 +            if (blocked.includes(row.user_id)) return;        
+      106              const note = await fetchNoteById(row.id, viewerId)
+           ;
+      107              if (!note) return;
+      108              // 'following' scope: only surface authors the vie
+           wer follows. The
+
+  Thought for 11s (ctrl+o to expand)
+
+● Now wire UI. Read ConfirmModal + IconButton signatures.
+
+  Thought for 9s, read 1 file (ctrl+o to expand)
+
+● UserProfileScreen is the natural moderation surface (reached by tapping any
+  author). Add block/unblock + report there. Extend PublicProfile with
+  isBlocked.
+
+● Update(src/types.ts)
+  ⎿  Added 1 line
+      91    followingCount: number;
+      92    isFollowing: boolean;
+      93    isSelf: boolean;
+      94 +  isBlocked: boolean; // does the viewer block this user?      
+      95  }
+      96  
+      97  // Feed source scope.
+
+● Update(src/lib/social.ts)
+  ⎿  Added 1 line
+      1 +import { isBlocking } from './moderation';                      
+      2  import { fetchProfileStats } from './notes';
+      3  import { supabase } from './supabase';
+      4  import type { FollowDirection, FollowPage, FollowUser, PublicPro
+         file } from '../types';
+
+● Update(src/lib/social.ts)
+  ⎿  Added 3 lines
+      154      { count: followerCount, error: fErr },
+      155      { count: followingCount, error: gErr },
+      156      edgeRes,
+      157 +    isBlocked,                                                
+      158    ] = await Promise.all([
+      159      supabase.from('public_usernames').select('username').eq('i
+           d', userId).maybeSingle(),
+      160      fetchProfileStats(userId),
+     ...
+      168            .eq('follower_id', viewerId)
+      169            .eq('followee_id', userId)
+      170            .maybeSingle(),
+      171 +    isSelf ? Promise.resolve(false) : isBlocking(viewerId, use
+          +rId),                                                         
+      172    ]);
+      173    if (nErr) throw new Error(nErr.message);
+      174    if (fErr) throw new Error(fErr.message);
+     ...
+      183      followingCount: followingCount ?? 0,
+      184      isFollowing: !!edgeRes?.data,
+      185      isSelf,
+      186 +    isBlocked,                                                
+      187    };
+      188  }
+
+● Now UserProfileScreen UI: block/unblock button + report modal. Add state +
+  handlers + UI.
+
+● Update(src/screens/UserProfileScreen.tsx)
+  ⎿  Added 2 lines, removed 1 line
+       4  import { SafeAreaView } from 'react-native-safe-area-context';
+       5  
+       6  import VoiceNoteCard from '../components/VoiceNoteCard';
+       7 -import { Body, Display, IconButton, Label, Monogram, Rule, Seco
+         -ndaryButton, SignalButton, StatCard } from '../components/ui'; 
+       7 +import { Body, ConfirmModal, Display, IconButton, Label, Monogr
+         +am, Rule, SecondaryButton, SignalButton, StatCard } from '../co
+         +mponents/ui';                                                  
+       8  import { useAuth } from '../context/AuthContext';
+       9 +import { blockUser, reportContent, unblockUser } from '../lib/m
+         +oderation';                                                    
+      10  import { fetchUserNotesPage } from '../lib/notes';
+      11  import { fetchPublicProfile, follow, unfollow } from '../lib/so
+          cial';
+      12  import { colors, space } from '../theme';
+
+● Update(src/screens/UserProfileScreen.tsx)
+  ⎿  Added 4 lines
+      28    const [hasMore, setHasMore] = useState(true);
+      29    const [error, setError] = useState<string | null>(null);
+      30    const [pending, setPending] = useState(false); // follow requ
+          est inflight
+      31 +  const [confirmBlock, setConfirmBlock] = useState(false); // b
+         +lock confirm modal                                             
+      32 +  const [confirmReport, setConfirmReport] = useState(false); //
+         + report confirm modal                                          
+      33 +  const [modPending, setModPending] = useState(false); // block
+         +/report inflight                                               
+      34 +  const [reported, setReported] = useState(false); // report fi
+         +led this session                                               
+      35  
+      36    const cursorRef = useRef<string | null>(null);
+      37    const inFlight = useRef(false);
+
+● Add handlers after toggleFollow.
+
+● Update(src/screens/UserProfileScreen.tsx)
+  ⎿  Added 42 lines
+      106      }
+      107    }, [data, pending, user, userId]);
+      108  
+      109 +  // Block / unblock. Blocking also drops any follow edge to t
+          +his user so they                                              
+      110 +  // vanish from all scopes. Optimistic flag flip; roll back o
+          +n failure.                                                    
+      111 +  const toggleBlock = useCallback(async () => {               
+      112 +    if (!data || data.isSelf || modPending) return;           
+      113 +    const next = !data.isBlocked;                             
+      114 +    setModPending(true);                                      
+      115 +    setConfirmBlock(false);                                   
+      116 +    setData((d) => (d ? { ...d, isBlocked: next, isFollowing: 
+          +next ? false : d.isFollowing } : d));                         
+      117 +    try {                                                     
+      118 +      if (next) {                                             
+      119 +        await blockUser(user!.id, userId!);                   
+      120 +        await unfollow(user!.id, userId!); // stop following s
+          +omeone you block                                              
+      121 +      } else {                                                
+      122 +        await unblockUser(user!.id, userId!);                 
+      123 +      }                                                       
+      124 +    } catch (e: unknown) {                                    
+      125 +      setData((d) => (d ? { ...d, isBlocked: !next } : d));   
+      126 +      setError(e instanceof Error ? e.message : String(e));   
+      127 +    } finally {                                               
+      128 +      setModPending(false);                                   
+      129 +    }                                                         
+      130 +  }, [data, modPending, user, userId]);                       
+      131 +                                                              
+      132 +  // File a report against this user (a generic reason — the p
+          +rofile-level flag).                                           
+      133 +  const submitReport = useCallback(async () => {              
+      134 +    if (!data || data.isSelf || modPending) return;           
+      135 +    setModPending(true);                                      
+      136 +    setConfirmReport(false);                                  
+      137 +    try {                                                     
+      138 +      await reportContent({                                   
+      139 +        reporterId: user!.id,                                 
+      140 +        reportedUserId: userId!,                              
+      141 +        reason: 'Reported from profile',                      
+      142 +      });                                                     
+      143 +      setReported(true);                                      
+      144 +    } catch (e: unknown) {                                    
+      145 +      setError(e instanceof Error ? e.message : String(e));   
+      146 +    } finally {                                               
+      147 +      setModPending(false);                                   
+      148 +    }                                                         
+      149 +  }, [data, modPending, user, userId]);                       
+      150 +                                                              
+      151    return (
+      152      <SafeAreaView style={{ flex: 1, backgroundColor: colors.su
+           rface }} edges={['top']}>
+      153        {/* Local top bar: back control + wordmark. */}
+
+● Add UI: block/report row under follow button + confirm modals. Add topbar
+  report icon too.
+
+● Update(src/screens/UserProfileScreen.tsx)
+  ⎿  Added 27 lines, removed 1 line
+      216                  />
+      217                </View>
+      218  
+      219 -              {!data?.isSelf &&                               
+      219 +              {!data?.isSelf && !data?.isBlocked &&           
+      220                  (data?.isFollowing ? (
+      221                    <SecondaryButton label={pending ? '…' : '✓ F
+           OLLOWING'} onPress={toggleFollow} disabled={pending} />
+      222                  ) : (
+      223                    <SignalButton label={pending ? '…' : '+ FOLL
+           OW'} onPress={toggleFollow} disabled={pending} />
+      224                  ))}
+      225  
+      226 +              {/* Moderation controls: block toggle + report (
+          +not for own profile). */}                                     
+      227 +              {!data?.isSelf && (                             
+      228 +                <View style={{ flexDirection: 'row', gap: 12 }
+          +}>                                                            
+      229 +                  <View style={{ flex: 1 }}>                  
+      230 +                    <SecondaryButton                          
+      231 +                      label={modPending ? '…' : data?.isBlocke
+          +d ? 'UNBLOCK' : 'BLOCK'}                                      
+      232 +                      onPress={() => (data?.isBlocked ? toggle
+          +Block() : setConfirmBlock(true))}                             
+      233 +                      disabled={modPending}                   
+      234 +                    />                                        
+      235 +                  </View>                                     
+      236 +                  <View style={{ flex: 1 }}>                  
+      237 +                    <SecondaryButton                          
+      238 +                      label={reported ? '✓ REPORTED' : 'REPORT
+          +'}                                                            
+      239 +                      onPress={() => setConfirmReport(true)}  
+      240 +                      disabled={modPending || reported}       
+      241 +                    />                                        
+      242 +                  </View>                                     
+      243 +                </View>                                       
+      244 +              )}                                              
+      245 +                                                              
+      246 +              {data?.isBlocked && (                           
+      247 +                <Body muted style={{ fontSize: 15 }}>         
+      248 +                  You block this user. Their broadcasts are hi
+          +dden from your feed.                                          
+      249 +                </Body>                                       
+      250 +              )}                                              
+      251 +                                                              
+      252                <Rule />
+      253                <Label muted>{data?.isSelf ? 'YOUR NOTES' : 'THE
+           IR NOTES'}</Label>
+      254              </View>
+
+● Add confirm modals before closing SafeAreaView. Find the end.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(src/screens/UserProfileScreen.tsx)
+  ⎿  Added 24 lines
+      269            )}
+      270          />
+      271        )}
+      272 +                                                              
+      273 +      <ConfirmModal                                           
+      274 +        visible={confirmBlock}                                
+      275 +        title="BLOCK THIS VOICE?"                             
+      276 +        message={`You'll stop hearing ${data?.username ?? 'thi
+          +s user'} and unfollow them. They won't be told.`}             
+      277 +        confirmLabel="BLOCK"                                  
+      278 +        cancelLabel="CANCEL"                                  
+      279 +        tone="danger"                                         
+      280 +        busy={modPending}                                     
+      281 +        onConfirm={toggleBlock}                               
+      282 +        onCancel={() => setConfirmBlock(false)}               
+      283 +      />                                                      
+      284 +                                                              
+      285 +      <ConfirmModal                                           
+      286 +        visible={confirmReport}                               
+      287 +        title="REPORT THIS VOICE?"                            
+      288 +        message="This flags the user for review by moderators.
+          + Abuse of reporting may be actioned."                         
+      289 +        confirmLabel="REPORT"                                 
+      290 +        cancelLabel="CANCEL"                                  
+      291 +        tone="danger"                                         
+      292 +        busy={modPending}                                     
+      293 +        onConfirm={submitReport}                              
+      294 +        onCancel={() => setConfirmReport(false)}              
+      295 +      />                                                      
+      296      </SafeAreaView>
+      297    );
+      298  }
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Task 4 done. Task 5: CI + supabase config.
+
+  Thought for 5s (ctrl+o to expand)
+
+● Need supabase/config.toml (project ref) for db push. Check .env / project ref.
+  Thought for 6s, listed 1 directory (ctrl+o to expand)
+
+● Write(supabase/config.toml)
+  ⎿  Wrote 5 lines to supabase/config.toml
+      1 # Signal — Supabase CLI project config.
+      2 # `project_id` is the local project name used by `supabase` CLI c
+        ommands. The
+      3 # hosted project ref is supplied to CI via the SUPABASE_PROJECT_R
+        EF secret so it
+      4 # isn't committed here.
+      5 project_id = "signal"
+
+● CI workflows: PR check (typecheck+lint), deploy migrations on main.
+
+● Write(.github/workflows/ci.yml)
+  ⎿  Wrote 28 lines to .github/workflows/ci.yml
+       1 name: CI
+       2 
+       3 # Type-check and lint every push / PR. Catches the class of brea
+         kage that a
+       4 # hand-run app never surfaces until runtime.
+       6   push:
+       7     branches: [main, master]
+       8   pull_request:
+       9 
+      10 jobs:
+     … +19 lines (ctrl+o to expand)
+
+● Write(.github/workflows/deploy-migrations.yml)
+  ⎿  Wrote 47 lines to .github/workflows/deploy-migrations.yml
+       1 name: Deploy migrations
+       3 # Applies supabase/migrations to the hosted DB on every merge to
+          the default
+         eactions:
+       5 # migration 0002 was never hand-pasted into prod, so reactions s
+       6 # CI push means the DB always matches what's committed — no manu
+         al SQL-editor
+       8 #
+       9 # Required repository secrets:
+         ccess Tokens)
+     … +46 lines (ctrl+o to expand)
+
+  Thought for 5s (ctrl+o to expand)
+
+● Bug: supabase link references $SUPABASE_PROJECT_REF but it's not in step env.
+  Fix.
+
+● Update(.github/workflows/deploy-migrations.yml)
+  ⎿  Added 1 line, removed 3 lines
+      35        - name: Link project
+      36          env:
+      37            SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TO
+          KEN }}
+      38 +          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_RE
+         +F }}                                                           
+      39          run: supabase link --project-ref "$SUPABASE_PROJECT_REF
+          "
+      39 -        # SUPABASE_PROJECT_REF is read from the step env below.
+      40 -        # (kept separate so the token is only where it's needed
+         -)                                                              
+      41 -        # See env on the next step for the ref value.          
+      40  
+      41        - name: Push migrations
+      42          env:
+
+● Verify lint passes (CI runs it).
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Unused import. ReactionCounts now only used in type (via VoiceNoteRow). Remove
+  from notes.ts imports.
+
+● Update(src/lib/notes.ts)
+  ⎿  Removed 1 line
+       6    FeedPage,
+       7    FeedScope,
+       8    ProfileStats,
+       9 -  ReactionCounts,                                              
+       9    ReactionEmoji,
+      10    UserNote,
+      11    UserNotePage,
+
+  Thought for 9s, ran 1 shell command (ctrl+o to expand)
+
+● All clean. Mark done.
+
+  Thought for 5s (ctrl+o to expand)
+
+● Verify no dangling refs to removed symbols.
+
+  Thought for 5s, searched for 1 pattern (ctrl+o to expand)
+
+● ReactionRow now unused anywhere. Check + remove.
+
+  Thought for 5s, searched for 1 pattern (ctrl+o to expand)
+
+● Unused but exported — harmless, keep as DB-row type. Done.
+
+  All 5 shipped. TypeScript + lint clean.
+
+  What landed
+
+  Migrations (0006–0009 + config.toml):
+  - 0006 — voice_notes.reaction_total + reaction_counts jsonb,
+  trigger-maintained on reactions insert/update/delete, backfilled.
+  - 0007 — user_note_stats(uuid) RPC (count + sum, no row pull).
+  - 0008 — voice_notes added to supabase_realtime, replica identity full.
+  - 0009 — blocks + reports tables w/ RLS, blocked_user_ids(uuid) helper.
+
+  #1 Reaction counts denormalized — decorateNotes no longer fetches every
+  reaction row. Reads aggregate off note; fetches only viewer's own reaction
+  (bounded 1/note). Kills the viral-note blowup.
+
+  #2 Realtime feed — useFeed subscribes: INSERT hydrates+prepends new broadcasts
+  (skips own/blocked/dupe/off-scope), UPDATE patches counts in place keeping
+  viewer's own reaction. Feed no longer stale.
+
+  #3 Profile paginated — new fetchUserNotesPage (keyset, 15/page) + RPC-backed
+  fetchProfileStats. Profile / MyNotes / UserProfile all infinite-scroll now,
+  stop pulling full history. PublicProfile no longer carries notes.
+
+  #4 Moderation — moderation.ts
+  (block/unblock/isBlocking/report/fetchBlockedIds). Feed excludes blocked
+  authors both scopes. UserProfile gets BLOCK/UNBLOCK + REPORT buttons w/
+  confirm modals; block also unfollows.
+
+  #5 CI — .github/workflows/ci.yml (tsc + lint on PR), deploy-migrations.yml
+  (supabase db push on main). Stops the hand-paste drift that caused 0005.
+
+  Notes / caveats
+
+  - Deploy workflow needs 3 repo secrets: SUPABASE_ACCESS_TOKEN,
+  SUPABASE_PROJECT_REF (srrmjrmilibdnkegrloe), SUPABASE_DB_PASSWORD.
+  - MyNotes "TOP" sort only sorts loaded pages (keyset is time-ordered) — noted
+  in code.
+  - reports review is service-role/out-of-band — no admin UI built.
+  - Not done (from original list, flag for later): signed audio URLs (#8),
+  upload rate limit + size cap (#9), dead deliver-note/deliveries removal (#10),
+  FlatList audio-player recycling audit (#12).
+
+  Run supabase db push (or merge to main) to apply migrations — realtime +
+  counts need 0006/0008 live to function.
+
+  Want me to commit these, or tackle the rate-limit / signed-URL items next?
+
+✻ Sautéed for 15m 40s
+
+※ recap: Goal: harden Signal for 100+ users. Shipped all 5 planned fixes (denormalized reaction counts, realtime feed, paginated profiles, block/report, CI) with typecheck and lint passing. Next: run `supabase db push` or merge to main to apply migrations 0006–0009. (disable recaps in /config)
+
+❯ Logs for your project will appear below. Press Ctrl+C to exit.                
+  Android Bundled 3644ms node_modules/expo-router/entry.js (1649 modules)       
+   WARN  Require cycle: src/lib/notes.ts -> src/lib/social.ts ->                
+  src/lib/notes.ts                                                              
+                                                                                
+  Require cycles are allowed, but can result in uninitialized values. Consider  
+  refactoring to remove the need for a cycle.                                   
+   ERROR  [Error: cannot add `postgres_changes` callbacks for                   
+  realtime:feed:following:f860aa03-8547-497f-bf3e-36480d6b8afd after            
+  `subscribe()`.]                                                               
+                                                                                
+  Code: useFeed.ts                                                              
+    92 |     const channel = supabase                                           
+    93 |       .channel(`feed:${scope}:${viewerId}`)                            
+  > 94 |       .on(                                                             
+       |          ^                                                             
+    95 |         'postgres_changes',                                            
+    96 |         { event: 'INSERT', schema: 'public', table: 'voice_notes' },   
+    97 |         async (payload) => {                                           
+  Call Stack                                                                    
+    useEffect$argument_0 (src/hooks/useFeed.ts:94:10)                           
+                                                                                
+  Code: _layout.tsx                                                             
+    48 |                                                                        
+    49 |   return (                                                             
+  > 50 |     <Stack screenOptions={{ headerShown: false }}>                     
+       |     ^                                                                  
+    51 |       {/* Anchor: always present, redirects to the correct group. */}  
+    52 |       <Stack.Screen name="index" />                                    
+    53 |                                                                        
+  Call Stack                                                                    
+    RootStack (app/_layout.tsx:50:5)                                            
+    RootLayout (app/_layout.tsx:32:11)                                          
+
+  Thought for 27s (ctrl+o to expand)
+
+● Two bugs. Fix both.
+
+  Bug 1: realtime channel reuse — supabase-js caches channel by topic; on scope
+  change / StrictMode remount the old topic still registered → .on after
+  subscribe() throws. Fix: unique topic per subscription + guaranteed removal.
+
+  Bug 2: require cycle notes ↔ social. Break it: inline the stats RPC in social,
+  drop the notes import.
+
+● Update(src/hooks/useFeed.ts)
+  ⎿  Added 8 lines, removed 1 line
+       89      if (!user) return;
+       90      const viewerId = user.id;
+       91  
+       92 +    // Unique topic per subscription instance. supabase-js cac
+          +hes channels by                                               
+       93 +    // topic and forbids adding callbacks to an already-subscr
+          +ibed channel, so a                                            
+       94 +    // reused topic (scope change / StrictMode remount) would 
+          +throw. A fresh                                                
+       95 +    // topic each run sidesteps that; cleanup removes it.     
+       96 +    channelSeq.current += 1;                                  
+       97 +    const topic = `feed:${scope}:${viewerId}:${channelSeq.curr
+          +ent}`;                                                        
+       98 +                                                              
+       99      const channel = supabase
+       93 -      .channel(`feed:${scope}:${viewerId}`)                   
+      100 +      .channel(topic)                                         
+      101        .on(
+      102          'postgres_changes',
+      103          { event: 'INSERT', schema: 'public', table: 'voice_not
+           es' },
+
+● Update(src/hooks/useFeed.ts)
+  ⎿  Added 1 line
+      22    const inFlight = useRef(false); // guards overlapping paginat
+          ion calls
+      23    const notesRef = useRef<FeedNote[]>([]); // latest notes, for
+           the realtime handler
+      24    notesRef.current = notes;
+      25 +  const channelSeq = useRef(0); // monotonic id → unique realti
+         +me topic per run                                               
+      26  
+      27    // Load the first page (fresh). Used on mount and pull-to-ref
+          resh.
+      28    const load = useCallback(
+
+  Thought for 11s (ctrl+o to expand)
+
+● Now break require cycle. social.ts imports fetchProfileStats from notes.ts;
+  notes.ts imports fetchFollowingIds from social.ts. Inline the RPC in social,
+  drop notes import.
+
+● Update(src/lib/social.ts)  ⎿  Removed 1 line
+      1  import { isBlocking } from './moderation';
+      2 -import { fetchProfileStats } from './notes';                    
+      2  import { supabase } from './supabase';
+      3  import type { FollowDirection, FollowPage, FollowUser, PublicPro
+         file } from '../types';
+      4  
+
+  Thought for 5s (ctrl+o to expand)
+
+● Replace fetchProfileStats usage in social with inline RPC call.
+
+● Update(src/lib/social.ts)
+  ⎿  Added 2 lines, removed 2 lines
+      149    // edge — all in parallel. No note rows pulled here.
+      150    const [
+      151      { data: nameRow, error: nErr },
+      152 -    stats,                                                    
+      152 +    { data: statsData, error: sErr },                         
+      153      { count: followerCount, error: fErr },
+      154      { count: followingCount, error: gErr },
+      155      edgeRes,
+      156      isBlocked,
+      157    ] = await Promise.all([
+      158      supabase.from('public_usernames').select('username').eq('i
+           d', userId).maybeSingle(),
+      159 -    fetchProfileStats(userId),                                
+      159 +    supabase.rpc('user_note_stats', { target_user_id: userId }
+          +),                                                            
+      160      supabase.from('follows').select('*', { count: 'exact', hea
+           d: true }).eq('followee_id', userId),
+      161      supabase.from('follows').select('*', { count: 'exact', hea
+           d: true }).eq('follower_id', userId),
+      162      isSelf
+
+● Update(src/lib/social.ts)
+  ⎿  Added 5 lines, removed 2 lines
+      170      isSelf ? Promise.resolve(false) : isBlocking(viewerId, use
+           rId),
+      171    ]);
+      172    if (nErr) throw new Error(nErr.message);
+      173 +  if (sErr) throw new Error(sErr.message);                    
+      174    if (fErr) throw new Error(fErr.message);
+      175    if (gErr) throw new Error(gErr.message);
+      176    if (edgeRes?.error) throw new Error(edgeRes.error.message);
+      177  
+      178 +  const statsRow = Array.isArray(statsData) ? statsData[0] : s
+          +tatsData;                                                     
+      179 +                                                              
+      180    return {
+      181      username: nameRow?.username ?? 'ANON',
+      179 -    totalNotes: stats.totalNotes,                             
+      180 -    totalReactions: stats.totalReactions,                     
+      182 +    totalNotes: statsRow?.note_count ?? 0,                    
+      183 +    totalReactions: statsRow?.reaction_count ?? 0,            
+      184      followerCount: followerCount ?? 0,
+      185      followingCount: followingCount ?? 0,
+      186      isFollowing: !!edgeRes?.data,
+
+  Thought for 7s (ctrl+o to expand)
+
+● Cycle broken (social no longer imports notes). Verify + typecheck.
+
+  Thought for 7s, ran 1 shell command (ctrl+o to expand)
+
+● Cycle gone (one-way notes→social now). tsc clean. Lint:
+
+  Ran 1 shell command (ctrl+o to expand)
+  ⎿  API Error: 400 You have exceeded your daily token limit. You can resume at 
+     2026-07-03 00:00 UTC.
+
+✻ Churned for 1m 36s

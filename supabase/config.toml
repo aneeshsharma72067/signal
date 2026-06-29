@@ -1,0 +1,5 @@
+# Signal — Supabase CLI project config.
+# `project_id` is the local project name used by `supabase` CLI commands. The
+# hosted project ref is supplied to CI via the SUPABASE_PROJECT_REF secret so it
+# isn't committed here.
+project_id = "signal"

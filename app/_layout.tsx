@@ -66,6 +66,8 @@ function RootStack() {
         <Stack.Screen name="feed" />
         <Stack.Screen name="my-notes" />
         <Stack.Screen name="profile" />
+        <Stack.Screen name="user/[id]" />
+        <Stack.Screen name="follows" />
         <Stack.Screen
           name="record"
           options={{

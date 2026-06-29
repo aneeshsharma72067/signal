@@ -1,0 +1,368 @@
+import { fetchBlockedIds } from './moderation';
+import { fetchFollowingIds } from './social';
+import { supabase, VOICE_NOTES_BUCKET } from './supabase';
+import type {
+  FeedNote,
+  FeedPage,
+  FeedScope,
+  ProfileStats,
+  ReactionEmoji,
+  UserNote,
+  UserNotePage,
+  VoiceNoteRow,
+} from '../types';
+
+// Read a local file uri into an ArrayBuffer for upload (RN-friendly).
+async function uriToArrayBuffer(uri: string): Promise<ArrayBuffer> {
+  const res = await fetch(uri);
+  if (!res.ok) throw new Error('Could not read the recorded audio file.');
+  return await res.arrayBuffer();
+}
+
+// Upload audio to Storage, then insert the voice_note row. The note is now
+// public — every authenticated user sees it in the global feed (no per-user
+// delivery fan-out). Throws on any failure — callers surface the message.
+export async function uploadAndPost({
+  userId,
+  uri,
+  durationSec,
+}: {
+  userId: string;
+  uri: string | null;
+  durationSec: number;
+}): Promise<VoiceNoteRow> {
+  if (!uri) throw new Error('No recording to post.');
+
+  const fileName = `${userId}/${Date.now()}.m4a`;
+  const bytes = await uriToArrayBuffer(uri);
+
+  const { error: uploadError } = await supabase.storage
+    .from(VOICE_NOTES_BUCKET)
+    .upload(fileName, bytes, { contentType: 'audio/m4a', upsert: false });
+  if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
+
+  const { data: pub } = supabase.storage.from(VOICE_NOTES_BUCKET).getPublicUrl(fileName);
+  const audioUrl = pub.publicUrl;
+
+  const { data: note, error: insertError } = await supabase
+    .from('voice_notes')
+    .insert({ user_id: userId, audio_url: audioUrl, duration: durationSec })
+    .select()
+    .single();
+  if (insertError) throw new Error(`Could not save note: ${insertError.message}`);
+
+  // Sign the newly uploaded audio URL so the client can play it immediately.
+  const { data: signed } = await supabase.storage
+    .from(VOICE_NOTES_BUCKET)
+    .createSignedUrl(fileName, 3600);
+  if (signed?.signedUrl) {
+    (note as VoiceNoteRow).audio_url = signed.signedUrl;
+  }
+
+  return note as VoiceNoteRow;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Global feed
+// ─────────────────────────────────────────────────────────────
+
+const FEED_PAGE_SIZE = 10;
+
+// A bare voice_notes row as selected for the feed. Reaction aggregates come
+// denormalized off the row (migration 0006) — no per-reaction fan-out.
+type FeedRow = Pick<
+  VoiceNoteRow,
+  'id' | 'audio_url' | 'duration' | 'created_at' | 'user_id' | 'reaction_total' | 'reaction_counts'
+>;
+
+// Columns to select for a feed row (aggregates included).
+const FEED_COLUMNS = 'id, audio_url, duration, created_at, user_id, reaction_total, reaction_counts';
+
+// Attach poster usernames + the viewer's own reaction to a batch of note rows.
+// Reaction COUNTS are read straight off the denormalized aggregate columns, so
+// the only reaction rows fetched are the viewer's own (one per note, bounded) —
+// not every reaction on every note. `viewerId` marks the viewer's own reaction.
+async function decorateNotes(rows: FeedRow[], viewerId: string): Promise<FeedNote[]> {
+  if (!rows.length) return [];
+
+  const noteIds = rows.map((n) => n.id);
+  const authorIds = [...new Set(rows.map((n) => n.user_id))];
+
+  // Batch-resolve usernames (users RLS is self-only → go through the view) and
+  // the viewer's own reactions on these notes, in parallel.
+  const [{ data: names, error: nErr }, { data: mine, error: rErr }] = await Promise.all([
+    supabase.from('public_usernames').select('id, username').in('id', authorIds),
+    supabase
+      .from('reactions')
+      .select('voice_note_id, emoji')
+      .eq('reactor_user_id', viewerId)
+      .in('voice_note_id', noteIds),
+  ]);
+  if (nErr) throw new Error(nErr.message);
+  if (rErr) throw new Error(rErr.message);
+
+  const nameById: Record<string, string> = Object.fromEntries(
+    (names ?? []).map((n) => [n.id, n.username])
+  );
+  const mineByNote: Record<string, ReactionEmoji> = Object.fromEntries(
+    (mine ?? []).map((r) => [r.voice_note_id, r.emoji as ReactionEmoji])
+  );
+
+  const notes = rows.map((n) => ({
+    id: n.id,
+    audio_url: n.audio_url,
+    duration: n.duration,
+    created_at: n.created_at,
+    user_id: n.user_id,
+    author: { id: n.user_id, username: nameById[n.user_id] ?? 'ANON' },
+    reactionCounts: n.reaction_counts ?? {},
+    total: n.reaction_total ?? 0,
+    myReaction: mineByNote[n.id] ?? null,
+  }));
+
+  return await signAudioUrls(notes);
+}
+
+// Fetch one page of the feed, newest first. Keyset pagination: pass the last
+// item's `created_at` as `before` to get the next page. `limit` capped at
+// FEED_PAGE_SIZE. `scope`:
+//   'everyone'  (default) — the global feed, every user's notes.
+//   'following' — only notes from users the viewer follows (empty if none).
+export async function fetchFeedPage({
+  viewerId,
+  before = null,
+  limit = FEED_PAGE_SIZE,
+  scope = 'everyone',
+}: {
+  viewerId: string;
+  before?: string | null;
+  limit?: number;
+  scope?: FeedScope;
+}): Promise<FeedPage> {
+  const size = Math.min(limit, FEED_PAGE_SIZE);
+
+  // Blocked authors are excluded from every scope. Following-scope also filters
+  // to followed authors; combine (followed minus blocked) so a blocked-but-
+  // followed user never leaks through.
+  const [blockedIds, followingIds] = await Promise.all([
+    fetchBlockedIds(viewerId),
+    scope === 'following' ? fetchFollowingIds(viewerId) : Promise.resolve<string[] | null>(null),
+  ]);
+
+  let authorIds: string[] | null = null;
+  if (scope === 'following') {
+    const blockedSet = new Set(blockedIds);
+    authorIds = (followingIds ?? []).filter((id) => !blockedSet.has(id));
+    // Nobody followed (or all blocked) → nothing to show. Skip the query.
+    if (authorIds.length === 0) return { notes: [], nextCursor: null, hasMore: false };
+  }
+
+  let query = supabase
+    .from('voice_notes')
+    .select(FEED_COLUMNS)
+    .order('created_at', { ascending: false })
+    .limit(size);
+  if (authorIds) query = query.in('user_id', authorIds);
+  // 'everyone' scope: exclude blocked authors via a NOT-IN filter.
+  if (!authorIds && blockedIds.length > 0) {
+    query = query.not('user_id', 'in', `(${blockedIds.join(',')})`);
+  }
+  if (before) query = query.lt('created_at', before);
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as FeedRow[];
+  const notes = await decorateNotes(rows, viewerId);
+  const nextCursor = rows.length === size ? rows[rows.length - 1].created_at : null;
+
+  return { notes, nextCursor, hasMore: nextCursor !== null };
+}
+
+// Fetch a single feed note, fully decorated (author + viewer's reaction). Used
+// by the realtime subscription to hydrate a note that arrived via an INSERT
+// event (the raw payload lacks the author username). Returns null if the note
+// no longer exists.
+export async function fetchNoteById(noteId: string, viewerId: string): Promise<FeedNote | null> {
+  const { data, error } = await supabase
+    .from('voice_notes')
+    .select(FEED_COLUMNS)
+    .eq('id', noteId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  const [note] = await decorateNotes([data as FeedRow], viewerId);
+  return note ?? null;
+}
+
+// Toggle a reaction for a note. One reaction per user per note:
+//   - no current reaction       → insert `emoji`
+//   - same emoji tapped again   → remove it
+//   - different emoji tapped    → switch to the new emoji
+// Returns the resulting reaction emoji (or null if removed). Throws on error.
+export async function toggleReaction({
+  userId,
+  voiceNoteId,
+  emoji,
+  current,
+}: {
+  userId: string;
+  voiceNoteId: string;
+  emoji: ReactionEmoji;
+  current: ReactionEmoji | null;
+}): Promise<ReactionEmoji | null> {
+  if (current === emoji) {
+    const { error } = await supabase
+      .from('reactions')
+      .delete()
+      .eq('reactor_user_id', userId)
+      .eq('voice_note_id', voiceNoteId);
+    if (error) throw new Error(error.message);
+    return null;
+  }
+
+  // Insert-or-switch. Unique(reactor, note) lets us upsert on that conflict.
+  const { error } = await supabase
+    .from('reactions')
+    .upsert(
+      { reactor_user_id: userId, voice_note_id: voiceNoteId, emoji },
+      { onConflict: 'reactor_user_id,voice_note_id' }
+    );
+  if (error) throw new Error(error.message);
+  return emoji;
+}
+
+// Derive the Storage object path from a public audio URL.
+// `.../object/public/voice-notes/<uid>/<file>` → `<uid>/<file>`.
+function storagePathFromUrl(audioUrl: string | null): string | null {
+  if (!audioUrl) return null;
+  const marker = `/${VOICE_NOTES_BUCKET}/`;
+  const i = audioUrl.indexOf(marker);
+  if (i !== -1) {
+    return decodeURIComponent(audioUrl.slice(i + marker.length));
+  }
+  // Support relative storage paths directly.
+  if (!audioUrl.startsWith('http')) {
+    return audioUrl;
+  }
+  return null;
+}
+
+// Generate signed URLs in a batch for better performance.
+async function signAudioUrls<T extends { audio_url: string | null }>(notes: T[]): Promise<T[]> {
+  if (!notes.length) return notes;
+  const paths = notes.map((n) => storagePathFromUrl(n.audio_url)).filter((p): p is string => !!p);
+  if (!paths.length) return notes;
+
+  try {
+    const { data, error } = await supabase.storage
+      .from(VOICE_NOTES_BUCKET)
+      .createSignedUrls(paths, 3600);
+    if (error) {
+      console.warn('Failed to create signed URLs:', error.message);
+      return notes;
+    }
+
+    const signedUrlByPath: Record<string, string> = {};
+    for (const item of data ?? []) {
+      if (item.signedUrl && item.path) {
+        signedUrlByPath[item.path] = item.signedUrl;
+      }
+    }
+
+    return notes.map((n) => {
+      const path = storagePathFromUrl(n.audio_url);
+      if (path && signedUrlByPath[path]) {
+        return { ...n, audio_url: signedUrlByPath[path] };
+      }
+      return n;
+    });
+  } catch (err) {
+    console.error('Error signing audio URLs:', err);
+    return notes;
+  }
+}
+
+// Hard-delete a note: removes the DB row (reactions cascade via FK) and the
+// audio object from Storage. RLS ensures only the author can do this. Storage
+// removal is best-effort — a leftover file should not fail the user-facing op.
+export async function deleteNote({
+  noteId,
+  audioUrl,
+}: {
+  noteId: string;
+  audioUrl: string | null;
+}): Promise<void> {
+  const { error } = await supabase.from('voice_notes').delete().eq('id', noteId);
+  if (error) throw new Error(error.message);
+
+  const path = storagePathFromUrl(audioUrl);
+  if (path) {
+    const { error: sErr } = await supabase.storage.from(VOICE_NOTES_BUCKET).remove([path]);
+    if (sErr) console.warn('Note row deleted but audio file remains:', sErr.message);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Per-user lists (My Notes / Profile)
+// ─────────────────────────────────────────────────────────────
+
+const USER_NOTES_PAGE_SIZE = 15;
+
+// Columns for a user note (denormalized reaction aggregates, no nested rows).
+const USER_NOTE_COLUMNS = 'id, audio_url, duration, created_at, reaction_total, reaction_counts';
+
+// One page of a user's notes, newest first. Keyset pagination: pass the last
+// item's `created_at` as `before` for the next page. Reaction summaries come
+// from the aggregate columns — no per-reaction fan-out per note.
+export async function fetchUserNotesPage({
+  userId,
+  before = null,
+  limit = USER_NOTES_PAGE_SIZE,
+}: {
+  userId: string;
+  before?: string | null;
+  limit?: number;
+}): Promise<UserNotePage> {
+  const size = Math.min(limit, USER_NOTES_PAGE_SIZE);
+
+  let query = supabase
+    .from('voice_notes')
+    .select(USER_NOTE_COLUMNS)
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(size);
+  if (before) query = query.lt('created_at', before);
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as Pick<
+    VoiceNoteRow,
+    'id' | 'audio_url' | 'duration' | 'created_at' | 'reaction_total' | 'reaction_counts'
+  >[];
+  const notes: UserNote[] = rows.map((n) => ({
+    id: n.id,
+    audio_url: n.audio_url,
+    duration: n.duration,
+    created_at: n.created_at,
+    reactionCounts: n.reaction_counts ?? {},
+    reactionTotal: n.reaction_total ?? 0,
+  }));
+
+  const signedNotes = await signAudioUrls(notes);
+  const nextCursor = rows.length === size ? rows[rows.length - 1].created_at : null;
+  return { notes: signedNotes, nextCursor, hasMore: nextCursor !== null };
+}
+
+// Aggregate profile stats via the server-side RPC (migration 0007): total notes
+// + total reactions received, without pulling any note rows.
+export async function fetchProfileStats(userId: string): Promise<ProfileStats> {
+  const { data, error } = await supabase.rpc('user_note_stats', { target_user_id: userId });
+  if (error) throw new Error(error.message);
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    totalNotes: row?.note_count ?? 0,
+    totalReactions: row?.reaction_count ?? 0,
+  };
+}
