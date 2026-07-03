@@ -1,7 +1,10 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter, usePathname } from 'expo-router';
-import { Pressable, View } from 'react-native';
+import { useEffect } from 'react';
+import { Pressable, Text, View } from 'react-native';
 
-import { colors } from '../theme';
+import { useUnreadBadge } from '../hooks/useUnreadBadge';
+import { colors, fonts, radius } from '../theme';
 import { Headline, Label } from './ui';
 
 // Top app bar with the SIGNAL wordmark and a small route switcher.
@@ -15,6 +18,11 @@ const ROUTES = [
 export default function AppHeader() {
   const router = useRouter();
   const pathname = usePathname();
+  const { unreadCount, refresh } = useUnreadBadge();
+
+  // Re-sync the badge on every route change so returning from the Activity
+  // screen (which marks all read) drops the count back to 0.
+  useEffect(() => { refresh(); }, [pathname, refresh]);
 
   return (
     <View
@@ -32,7 +40,7 @@ export default function AppHeader() {
           height: 64,
         }}>
         <Headline style={{ fontSize: 24 }}>SIGNAL</Headline>
-        <View style={{ flexDirection: 'row', gap: 18 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
           {ROUTES.map((r) => {
             const isActive = pathname === r.href;
             return (
@@ -47,8 +55,40 @@ export default function AppHeader() {
               </Pressable>
             );
           })}
+          <Bell count={unreadCount} onPress={() => router.navigate('/notifications')} />
         </View>
       </View>
     </View>
+  );
+}
+
+// Bell glyph with an unread badge. The badge is a lime pill showing the count
+// (capped at 9+); hidden when there's nothing unread.
+function Bell({ count, onPress }: { count: number; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} hitSlop={8} accessibilityLabel="Activity" style={{ width: 24, height: 24 }}>
+      <Ionicons name={count > 0 ? 'notifications' : 'notifications-outline'} size={22} color={colors.ink} />
+      {count > 0 && (
+        <View
+          style={{
+            position: 'absolute',
+            top: -6,
+            right: -8,
+            minWidth: 18,
+            height: 18,
+            paddingHorizontal: 4,
+            borderRadius: radius.full,
+            borderWidth: 2,
+            borderColor: colors.ink,
+            backgroundColor: colors.signal,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+          <Text style={{ fontFamily: fonts.mono, fontSize: 9, color: colors.ink }}>
+            {count > 9 ? '9+' : count}
+          </Text>
+        </View>
+      )}
+    </Pressable>
   );
 }

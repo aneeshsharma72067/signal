@@ -6,6 +6,10 @@ import { fetchFeedPage, fetchNoteById, toggleReaction } from '../lib/notes';
 import { supabase } from '../lib/supabase';
 import type { FeedNote, FeedScope, ReactionCounts, ReactionEmoji, VoiceNoteRow } from '../types';
 
+// Module-level: monotonic across mounts so a remount can't reuse a topic whose
+// channel is still being torn down (removeChannel is async).
+let channelSeq = 0;
+
 // Drives the global Home Feed: every user's voice notes, newest first, paged 10
 // at a time with infinite scroll. Reacting updates a note in place (count +
 // "you reacted" state) — notes are never removed on reaction.
@@ -22,7 +26,6 @@ export function useFeed(scope: FeedScope = 'everyone') {
   const inFlight = useRef(false); // guards overlapping pagination calls
   const notesRef = useRef<FeedNote[]>([]); // latest notes, for the realtime handler
   notesRef.current = notes;
-  const channelSeq = useRef(0); // monotonic id → unique realtime topic per run
 
   // Load the first page (fresh). Used on mount and pull-to-refresh.
   const load = useCallback(
@@ -94,8 +97,8 @@ export function useFeed(scope: FeedScope = 'everyone') {
     // topic and forbids adding callbacks to an already-subscribed channel, so a
     // reused topic (scope change / StrictMode remount) would throw. A fresh
     // topic each run sidesteps that; cleanup removes it.
-    channelSeq.current += 1;
-    const topic = `feed:${scope}:${viewerId}:${channelSeq.current}`;
+    channelSeq += 1;
+    const topic = `feed:${scope}:${viewerId}:${channelSeq}`;
 
     const channel = supabase
       .channel(topic)

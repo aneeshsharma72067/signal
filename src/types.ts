@@ -122,3 +122,32 @@ export interface FollowPage {
   nextCursor: string | null;
   hasMore: boolean;
 }
+
+// ─────────────────────────────────────────────────────────────
+// Notifications (activity feed — see migration 0013_notifications.sql)
+// ─────────────────────────────────────────────────────────────
+
+// What happened:
+//   'reaction' — `actor` reacted `emoji` to your note (`voiceNoteId`).
+//   'follow'   — `actor` followed you.
+//   'note'     — `actor` (someone you follow) posted a note (`voiceNoteId`).
+export type NotificationType = 'reaction' | 'follow' | 'note';
+
+// One decorated notification for the Activity screen. `actor` is resolved
+// through public_usernames (users RLS is self-only).
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  actor: { id: string; username: string };
+  voiceNoteId: string | null;
+  emoji: ReactionEmoji | null;
+  read: boolean;
+  createdAt: string; // notifications.created_at — the keyset cursor
+}
+
+// A page of notifications, keyset-paginated by created_at.
+export interface NotificationPage {
+  items: AppNotification[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}

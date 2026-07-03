@@ -118,6 +118,7 @@ export default function ProfileScreen() {
             </View>
 
             <SignalButton label="● NEW BROADCAST" onPress={() => router.navigate('/record')} />
+            <SecondaryButton label="SETTINGS" onPress={() => router.navigate('/settings')} />
 
             <Rule />
 
