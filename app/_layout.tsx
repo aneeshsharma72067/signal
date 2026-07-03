@@ -9,13 +9,18 @@ import {
 } from "@expo-google-fonts/hanken-grotesk";
 import { JetBrainsMono_600SemiBold } from "@expo-google-fonts/jetbrains-mono";
 import { Stack } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
+import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { AuthProvider, useAuth } from "../src/context/AuthContext";
 import { colors } from "../src/theme";
+
+// Keep the native splash screen visible until fonts and auth state are loaded.
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // expo-router replaces the React Navigation containers/navigators. The root
 // layout supplies the same providers App.js used, then renders a guarded Stack.
@@ -41,6 +46,12 @@ export default function RootLayout() {
 // at a time; failing a guard redirects to the anchor (index), which re-routes.
 function RootStack() {
   const { session, needsUsername, loading } = useAuth();
+
+  useEffect(() => {
+    if (!loading) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [loading]);
 
   if (loading) return <Splash />;
 
