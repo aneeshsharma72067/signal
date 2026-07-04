@@ -11,7 +11,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-import { brutalistShadow, colors, fonts, radius, space } from '../theme';
+import { brutalistShadow, colors, fonts, iosFocusShadow, radius, space } from '../theme';
 
 type TextProps = {
   children?: ReactNode;
@@ -345,6 +345,7 @@ export function TextField({
 
   return (
     <View
+      collapsable={false}
       style={[
         {
           flexDirection: 'row',
@@ -355,7 +356,10 @@ export function TextField({
           backgroundColor: colors.canvas,
           paddingHorizontal: 20,
         },
-        focused ? brutalistShadow : null,
+        // Only the iOS offset-shadow toggles on focus. Android `elevation` is
+        // held constant — toggling it recreates the native view, which drops
+        // TextInput focus and flickers the keyboard shut on focus.
+        focused ? iosFocusShadow : null,
       ]}>
       <TextInput
         placeholderTextColor={colors.onSurfaceVariant}

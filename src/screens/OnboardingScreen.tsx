@@ -3,6 +3,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -44,17 +45,19 @@ export default function OnboardingScreen() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={["top"]}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={{ flex: 1, paddingHorizontal: space.containerPadding }}
+        style={{ flex: 1 }}
       >
-        <View
-          style={{
-            flex: 1,
+        <ScrollView
+          contentContainerStyle={{
+            flexGrow: 1,
             justifyContent: "center",
+            paddingHorizontal: space.containerPadding,
             gap: space.sectionMargin,
           }}
+          keyboardShouldPersistTaps="handled"
         >
           <View style={{ gap: 16, alignItems: "center" }}>
             <Display style={{ fontSize: 72, lineHeight: 70 }}>SIGNAL</Display>
@@ -71,6 +74,7 @@ export default function OnboardingScreen() {
               keyboardType="email-address"
               autoCapitalize="none"
               autoComplete="email"
+              importantForAutofill="yes"
             />
             <TextField
               placeholder="PASSWORD"
@@ -78,6 +82,8 @@ export default function OnboardingScreen() {
               onChangeText={setPassword}
               secureTextEntry
               autoCapitalize="none"
+              autoComplete="password"
+              importantForAutofill="yes"
             />
 
             {error && <Body style={{ color: colors.error }}>{error}</Body>}
@@ -108,7 +114,7 @@ export default function OnboardingScreen() {
               </Label>
             </Pressable>
           </View>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

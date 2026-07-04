@@ -48,6 +48,17 @@ export const brutalistShadow = {
   elevation: 8,
 };
 
+// Same offset shadow, minus `elevation`. Use where the shadow toggles on an
+// interactive/focused view: changing Android `elevation` recreates the native
+// view (dropping TextInput focus + flickering the keyboard). iOS shadow props
+// are safe to toggle; Android just shows no shadow, which is acceptable.
+export const iosFocusShadow = {
+  shadowColor: colors.ink,
+  shadowOffset: { width: 4, height: 4 },
+  shadowOpacity: 1,
+  shadowRadius: 0,
+};
+
 // The 6 allowed reaction emojis (per spec). `as const` so the element type is a
 // string-literal union (see ReactionEmoji in types.ts), not plain string.
 export const REACTION_EMOJIS = ['🔥', '💙', '🤝', '😂', '💀', '🤯'] as const;

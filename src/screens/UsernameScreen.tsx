@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Body, Display, Label, SignalButton, TextField } from '../components/ui';
@@ -44,11 +44,19 @@ export default function UsernameScreen() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.canvas }} edges={['top']}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1, paddingHorizontal: space.containerPadding }}>
-        <View style={{ flex: 1, justifyContent: 'center', gap: space.sectionMargin }}>
+        style={{ flex: 1 }}>
+        <ScrollView
+          contentContainerStyle={{
+            flexGrow: 1,
+            justifyContent: 'center',
+            paddingHorizontal: space.containerPadding,
+            gap: space.sectionMargin,
+          }}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={{ gap: 12 }}>
             <Display>PICK A{'\n'}HANDLE</Display>
             <Body muted style={{ fontSize: 18 }}>This is how strangers hear you.</Body>
@@ -62,6 +70,8 @@ export default function UsernameScreen() {
               autoCapitalize="none"
               autoCorrect={false}
               maxLength={20}
+              autoComplete="username"
+              importantForAutofill="yes"
             />
             {error && <Body style={{ color: colors.error }}>{error}</Body>}
             <SignalButton label={busy ? 'SAVING…' : 'CLAIM IT'} onPress={save} disabled={busy} />
@@ -69,7 +79,7 @@ export default function UsernameScreen() {
               <Label muted>CANCEL · SIGN OUT</Label>
             </Pressable>
           </View>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
