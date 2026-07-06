@@ -14,15 +14,15 @@ import { Body, Card, Label, Monogram, SignalButton } from '../components/ui';
 import { timeAgo } from '../components/VoiceNoteCard';
 import { useAuth } from '../context/AuthContext';
 import { useWindowedPlayback } from '../hooks/useWindowedPlayback';
-import { fetchNoteById } from '../lib/notes';
-import { fetchRepliesPage } from '../lib/notes';
+import { fetchNoteById, fetchRepliesPage } from '../lib/notes';
 import { supabase } from '../lib/supabase';
 import { colors, space } from '../theme';
 import type { FeedNote, VoiceReply } from '../types';
 
 // Thread view: the parent note is shown at the top, followed by an oldest-first
-// list of voice replies. A realtime Supabase channel appends new replies live as
-// they arrive. The "● REPLY" button opens ReplyRecordScreen as a full-screen modal.
+// list of voice replies. A single realtime Supabase channel (with two chained
+// .on() listeners registered before .subscribe()) appends new replies live and
+// bumps the reply count. The "● REPLY" button opens ReplyRecordScreen.
 export default function ThreadScreen() {
   const router = useRouter();
   const { id: noteId } = useLocalSearchParams<{ id: string }>();
@@ -104,13 +104,18 @@ export default function ThreadScreen() {
     }
   }, [noteId, hasMore]);
 
-  // ── Realtime: new replies appear live ────────────────────────────────────
+  // ── Realtime: new replies + reply count update ────────────────────────────
+  // IMPORTANT: All .on() listeners MUST be chained before .subscribe() is called.
+  // Splitting them across two useEffect hooks causes "cannot add postgres_changes
+  // callbacks after subscribe()" because the first effect subscribes the channel
+  // before the second effect can attach its listener.
 
   useEffect(() => {
     if (!noteId) return;
 
     const channel = supabase
       .channel(`thread:${noteId}`)
+      // Listener 1: append newly arrived replies to the list (de-duped by id).
       .on(
         'postgres_changes',
         {
@@ -120,40 +125,25 @@ export default function ThreadScreen() {
           filter: `parent_note_id=eq.${noteId}`,
         },
         async (payload) => {
-          // Re-fetch the newly inserted reply to get the signed audio URL +
-          // resolved author username (the raw payload lacks both).
+          // Re-fetch to get signed audio URL + resolved author username —
+          // the raw payload lacks both.
           if (!user) return;
           try {
             const page = await fetchRepliesPage({
               parentNoteId: noteId,
-              // Fetch only from the new reply's timestamp onward to minimize data.
               after: (payload.new as { created_at: string }).created_at,
             });
-            // Prepend the new reply only if it's not already in the list (de-dupe
-            // by id in case the poster's optimistic state already added it).
             setReplies((prev) => {
               const existingIds = new Set(prev.map((r) => r.id));
               const fresh = page.replies.filter((r) => !existingIds.has(r.id));
               return [...prev, ...fresh];
             });
           } catch {
-            // Realtime hydration failed: the user can pull-to-refresh.
+            // Realtime hydration failed — user can pull-to-refresh.
           }
         }
       )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [noteId, user]);
-
-  // ── Also update parent note's replyCount when a new reply arrives ─────────
-
-  useEffect(() => {
-    if (!noteId) return;
-    const channel = supabase
-      .channel(`thread-count:${noteId}`)
+      // Listener 2: bump the parent note's displayed reply count.
       .on(
         'postgres_changes',
         {
@@ -163,15 +153,18 @@ export default function ThreadScreen() {
           filter: `parent_note_id=eq.${noteId}`,
         },
         () => {
-          // Increment the displayed reply count optimistically.
-          setNote((prev) => (prev ? { ...prev, replyCount: (prev.replyCount ?? 0) + 1 } : prev));
+          setNote((prev) =>
+            prev ? { ...prev, replyCount: (prev.replyCount ?? 0) + 1 } : prev
+          );
         }
       )
+      // Single subscribe — covers both listeners above.
       .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [noteId]);
+  }, [noteId, user]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
