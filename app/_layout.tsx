@@ -89,6 +89,16 @@ function RootStack() {
             animation: "slide_from_bottom",
           }}
         />
+        {/* Thread view: parent note + reply list. */}
+        <Stack.Screen name="thread/[id]" />
+        {/* Reply record modal: full-screen record flow for voice replies. */}
+        <Stack.Screen
+          name="thread/[id]/reply"
+          options={{
+            presentation: "fullScreenModal",
+            animation: "slide_from_bottom",
+          }}
+        />
       </Stack.Protected>
     </Stack>
   );

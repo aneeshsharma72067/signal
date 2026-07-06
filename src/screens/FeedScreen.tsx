@@ -146,6 +146,8 @@ export default function FeedScreen() {
             initialPosition={getInitialPosition(item.id)}
             onSavePosition={(s) => savePosition(item.id, s)}
             onFinish={() => handleFinish(item.id)}
+            replyCount={item.replyCount}
+            onPressReplies={() => router.navigate(`/thread/${item.id}`)}
           />
         )}
       />

@@ -59,6 +59,9 @@ interface VoiceNoteCardProps {
   onActivate?: () => void;
   initialPosition?: number;
   onSavePosition?: (seconds: number) => void;
+  // Voice replies (migration 0016): count shown below card; tapping opens thread.
+  replyCount?: number;
+  onPressReplies?: () => void;
 }
 
 export default function VoiceNoteCard({
@@ -81,6 +84,8 @@ export default function VoiceNoteCard({
   onActivate,
   initialPosition,
   onSavePosition,
+  replyCount,
+  onPressReplies,
 }: VoiceNoteCardProps) {
   const interactive = typeof onReact === 'function';
   const top = !interactive && reactionCounts ? topReactions(reactionCounts) : null;
@@ -170,6 +175,20 @@ export default function VoiceNoteCard({
             )}
           </View>
         )
+      )}
+
+      {/* Replies label — shown whenever onPressReplies is provided. Tapping
+          navigates to the thread (ThreadScreen). */}
+      {typeof onPressReplies === 'function' && (
+        <Pressable
+          onPress={onPressReplies}
+          accessibilityLabel={`${replyCount ?? 0} replies, tap to open thread`}
+          style={{ paddingTop: 2 }}
+        >
+          <Label muted style={{ fontSize: 11 }}>
+            ▶ {replyCount ?? 0} {replyCount === 1 ? 'REPLY' : 'REPLIES'}
+          </Label>
+        </Pressable>
       )}
     </Card>
   );

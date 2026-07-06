@@ -70,7 +70,15 @@ export default function NotificationsScreen() {
           renderItem={({ item }) => (
             <NotificationRow
               item={item}
-              onPress={() => router.push({ pathname: '/user/[id]', params: { id: item.actor.id } })}
+              onPress={() => {
+                // Reply notifications link to the thread on the replied-to note;
+                // all others link to the actor's profile.
+                if (item.type === 'reply' && item.voiceNoteId) {
+                  router.push(`/thread/${item.voiceNoteId}`);
+                } else {
+                  router.push({ pathname: '/user/[id]', params: { id: item.actor.id } });
+                }
+              }}
             />
           )}
           ListFooterComponent={
@@ -127,6 +135,8 @@ function copyFor(item: AppNotification): string {
       return `${who} followed you`;
     case 'note':
       return `${who} posted a new note`;
+    case 'reply':
+      return `${who} replied to your note`;
     default:
       return who;
   }

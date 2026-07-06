@@ -23,6 +23,10 @@ export interface VoiceNoteRow {
   // migration 0006). The feed reads these directly instead of counting rows.
   reaction_total: number;
   reaction_counts: ReactionCounts;
+  // Denormalized count of direct voice replies (migration 0016).
+  reply_count: number;
+  // Non-null when this row is a reply to another note (migration 0016).
+  parent_note_id: string | null;
 }
 
 // One of the six allowed reaction emojis.
@@ -50,6 +54,8 @@ export interface FeedNote {
   reactionCounts: ReactionCounts;
   total: number;
   myReaction: ReactionEmoji | null;
+  // Denormalized reply count (migration 0016). Shown below the card.
+  replyCount: number;
 }
 
 // A user's own note (My Notes / Profile lists). Reaction summary comes from the
@@ -61,6 +67,8 @@ export interface UserNote {
   created_at: string;
   reactionCounts: ReactionCounts;
   reactionTotal: number;
+  // Denormalized reply count (migration 0016).
+  replyCount: number;
 }
 
 export interface FeedPage {
@@ -144,7 +152,8 @@ export interface SearchUser {
 //   'reaction' — `actor` reacted `emoji` to your note (`voiceNoteId`).
 //   'follow'   — `actor` followed you.
 //   'note'     — `actor` (someone you follow) posted a note (`voiceNoteId`).
-export type NotificationType = 'reaction' | 'follow' | 'note';
+//   'reply'    — `actor` replied to your note (`voiceNoteId`).
+export type NotificationType = 'reaction' | 'follow' | 'note' | 'reply';
 
 // One decorated notification for the Activity screen. `actor` is resolved
 // through public_usernames (users RLS is self-only).
@@ -162,5 +171,26 @@ export interface AppNotification {
 export interface NotificationPage {
   items: AppNotification[];
   nextCursor: string | null;
+  hasMore: boolean;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Voice replies (migration 0016)
+// ─────────────────────────────────────────────────────────────
+
+// A single voice reply in a thread, decorated with its author's username.
+export interface VoiceReply {
+  id: string;
+  audio_url: string;
+  duration: number | null;
+  created_at: string;
+  user_id: string;
+  author: { id: string; username: string };
+}
+
+// A page of replies for a thread, paginated oldest-first by created_at.
+export interface ReplyPage {
+  replies: VoiceReply[];
+  nextCursor: string | null; // created_at of last reply in this page
   hasMore: boolean;
 }
