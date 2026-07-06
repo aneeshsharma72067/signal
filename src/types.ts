@@ -194,3 +194,22 @@ export interface ReplyPage {
   nextCursor: string | null; // created_at of last reply in this page
   hasMore: boolean;
 }
+
+// One of the user's own voice replies, shown in their archive with parent context.
+// `parentAuthor` is the username of whoever posted the note they replied to.
+export interface UserReply {
+  id: string;
+  audio_url: string;
+  duration: number | null;
+  created_at: string;
+  // The note this reply belongs to — lets the UI show "↩ reply to @X" context.
+  parentNoteId: string;
+  parentAuthorUsername: string;
+}
+
+// A page of the user's own reply rows, newest-first.
+export interface UserReplyPage {
+  replies: UserReply[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}

@@ -5,7 +5,18 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
-- **Voice replies**: any authenticated user can now reply to a top-level note with a
+- **My Notes — REPLIES tab**: Archive screen now has NOTES / REPLIES tabs. The
+  REPLIES tab shows the user's own voice replies as compact cards with a lime
+  left-border accent and a tappable "↩ REPLY TO @X" context label that opens the
+  parent thread.
+
+### Fixed
+- **Stats overcounting**: `user_note_stats` RPC now counts only top-level
+  broadcasts (`parent_note_id IS NULL`), so the NOTES stat card matches the
+  actual list length. Previously, voice replies were inflating the count.
+  (Migration `0017_fix_stats_exclude_replies.sql`)
+
+
   30-second voice clip. Threads are one-level deep.
   - New `ThreadScreen` (route `/thread/[id]`): parent note at top, reply list below
     in conversation order (oldest first), live updates via Supabase realtime.

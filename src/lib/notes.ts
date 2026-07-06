@@ -10,6 +10,8 @@ import type {
   ReplyPage,
   UserNote,
   UserNotePage,
+  UserReply,
+  UserReplyPage,
   VoiceNoteRow,
   VoiceReply,
 } from '../types';
@@ -362,6 +364,90 @@ export async function fetchUserNotesPage({
   const signedNotes = await signAudioUrls(notes);
   const nextCursor = rows.length === size ? rows[rows.length - 1].created_at : null;
   return { notes: signedNotes, nextCursor, hasMore: nextCursor !== null };
+}
+
+const USER_REPLIES_PAGE_SIZE = 15;
+
+// Fetch one page of the user's own voice replies (newest first), decorated with
+// the parent note author's username so the UI can show "↩ reply to @X" context.
+export async function fetchUserRepliesPage({
+  userId,
+  before = null,
+  limit = USER_REPLIES_PAGE_SIZE,
+}: {
+  userId: string;
+  before?: string | null;
+  limit?: number;
+}): Promise<UserReplyPage> {
+  const size = Math.min(limit, USER_REPLIES_PAGE_SIZE);
+
+  // Select reply rows with their parent's user_id so we can resolve the author.
+  let query = supabase
+    .from('voice_notes')
+    .select('id, audio_url, duration, created_at, parent_note_id, voice_notes!parent_note_id(user_id)')
+    .eq('user_id', userId)
+    // Only reply rows (parent_note_id IS NOT NULL).
+    .not('parent_note_id', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(size);
+  if (before) query = query.lt('created_at', before);
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as {
+    id: string;
+    audio_url: string;
+    duration: number | null;
+    created_at: string;
+    parent_note_id: string;
+    voice_notes: { user_id: string } | { user_id: string }[] | null;
+  }[];
+
+  if (!rows.length) return { replies: [], nextCursor: null, hasMore: false };
+
+  // Collect parent authors and resolve usernames in one batch.
+  const parentAuthorIds = [
+    ...new Set(
+      rows
+        .map((r) => {
+          const pn = r.voice_notes;
+          if (!pn) return null;
+          return Array.isArray(pn) ? pn[0]?.user_id : pn.user_id;
+        })
+        .filter((id): id is string => !!id)
+    ),
+  ];
+
+  const nameById: Record<string, string> = {};
+  if (parentAuthorIds.length) {
+    const { data: names } = await supabase
+      .from('public_usernames')
+      .select('id, username')
+      .in('id', parentAuthorIds);
+    for (const n of names ?? []) nameById[n.id] = n.username;
+  }
+
+  const rawReplies: UserReply[] = rows.map((r) => {
+    const pn = r.voice_notes;
+    const parentUserId = pn
+      ? Array.isArray(pn)
+        ? pn[0]?.user_id
+        : pn.user_id
+      : null;
+    return {
+      id: r.id,
+      audio_url: r.audio_url,
+      duration: r.duration,
+      created_at: r.created_at,
+      parentNoteId: r.parent_note_id,
+      parentAuthorUsername: (parentUserId && nameById[parentUserId]) ?? 'ANON',
+    };
+  });
+
+  const replies = await signAudioUrls(rawReplies);
+  const nextCursor = rows.length === size ? rows[rows.length - 1].created_at : null;
+  return { replies, nextCursor, hasMore: nextCursor !== null };
 }
 
 // Aggregate profile stats via the server-side RPC (migration 0007): total notes
