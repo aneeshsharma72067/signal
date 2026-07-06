@@ -20,11 +20,11 @@ export function useWindowedPlayback() {
 
   const getInitialPosition = useCallback((id: string) => positions.current.get(id) ?? 0, []);
 
-  // A note played to the end: forget its offset (so it replays from 0) and
-  // deactivate it if it's still the active one.
+  // A note played to the end: forget its offset so it replays from the top.
+  // The player stays mounted/active (not deactivated) so its waveform remains
+  // fully filled and tapping play replays immediately without a remount.
   const handleFinish = useCallback((id: string) => {
     positions.current.delete(id);
-    setPlayingNoteId((prev) => (prev === id ? null : prev));
   }, []);
 
   // Reset on screen blur: stop playback and forget every remembered offset.

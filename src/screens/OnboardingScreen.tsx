@@ -137,8 +137,11 @@ function SignupHeader() {
     <View style={{ gap: 28 }}>
       <Image
         source={SIGNUP_ILLUSTRATION}
-        resizeMode="contain"
-        style={{ width: "100%", alignSelf: "center", aspectRatio: 677 / 369 }}
+        style={{
+          width: "100%",
+          alignSelf: "center",
+          height: 200,
+        }}
       />
       <View style={{ gap: 12 }}>
         <Label muted>● NEW VOICE</Label>
@@ -160,8 +163,11 @@ function LoginHeader() {
     <View style={{ gap: 24 }}>
       <Image
         source={SIGNAL_GRAPHIC}
-        resizeMode="contain"
-        style={{ width: "100%", alignSelf: "center", aspectRatio: 1824 / 591 }}
+        style={{
+          width: "100%",
+          alignSelf: "center",
+          height: 100,
+        }}
       />
       <View style={{ gap: 8 }}>
         <Label muted>◆ RETURNING VOICE</Label>

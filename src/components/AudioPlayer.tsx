@@ -94,26 +94,33 @@ function ActiveAudioPlayer({
   initialPosition?: number;
   onSavePosition?: (seconds: number) => void;
 }) {
-  const { toggle, playing, progress, buffering, currentTime, play } = useAudioPlayer(uri, {
+  const { toggle, playing, progress, buffering, currentTime, finished, play } = useAudioPlayer(uri, {
     onStart,
     onFinish,
     initialPosition,
   });
 
-  // Auto-play on mount when active.
+  // Auto-play once on mount when active (play()'s identity changes with
+  // progress, so guard with a ref to avoid re-triggering every tick).
+  const autoPlayedRef = useRef(false);
   useEffect(() => {
-    if (autoPlay) {
+    if (autoPlay && !autoPlayedRef.current) {
+      autoPlayedRef.current = true;
       play();
     }
   }, [autoPlay, play]);
 
   // On unmount (the active note changed), report where we stopped so the parent
-  // can resume this note from the same offset later.
-  const timeRef = useRef(currentTime);
-  timeRef.current = currentTime;
+  // can resume this note from the same offset later. A finished note saves 0 so
+  // it replays from the top. Latest values are read from refs so the cleanup
+  // runs exactly once — on real unmount, not on every prop/tick change.
+  const saveRef = useRef(onSavePosition);
+  saveRef.current = onSavePosition;
+  const finalPosRef = useRef(0);
+  finalPosRef.current = finished ? 0 : currentTime;
   useEffect(() => {
-    return () => onSavePosition?.(timeRef.current);
-  }, [onSavePosition]);
+    return () => saveRef.current?.(finalPosRef.current);
+  }, []);
 
   // Spinner while the source is still loading/buffering and can't play yet.
   const showSpinner = buffering && !playing;
