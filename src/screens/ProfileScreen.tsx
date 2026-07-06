@@ -7,6 +7,7 @@ import AppHeader from '../components/AppHeader';
 import VoiceNoteCard from '../components/VoiceNoteCard';
 import { Body, Display, Label, Monogram, Rule, SecondaryButton, SignalButton, StatCard } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
+import { useWindowedPlayback } from '../hooks/useWindowedPlayback';
 import { fetchProfileStats, fetchUserNotesPage } from '../lib/notes';
 import { fetchFollowCounts } from '../lib/social';
 import { colors, space } from '../theme';
@@ -25,7 +26,7 @@ export default function ProfileScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [playingNoteId, setPlayingNoteId] = useState<string | null>(null);
+  const { playingNoteId, activate, savePosition, getInitialPosition, handleFinish } = useWindowedPlayback();
 
   const cursorRef = useRef<string | null>(null);
   const inFlight = useRef(false);
@@ -141,8 +142,10 @@ export default function ProfileScreen() {
             reactionCounts={item.reactionCounts}
             staticTotal={item.reactionTotal}
             active={item.id === playingNoteId}
-            onToggleActive={() => setPlayingNoteId((prev) => (prev === item.id ? null : item.id))}
-            onFinish={() => setPlayingNoteId(null)}
+            onActivate={() => activate(item.id)}
+            initialPosition={getInitialPosition(item.id)}
+            onSavePosition={(s) => savePosition(item.id, s)}
+            onFinish={() => handleFinish(item.id)}
           />
         )}
         ListFooterComponent={

@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import VoiceNoteCard from '../components/VoiceNoteCard';
 import { Body, ConfirmModal, Display, IconButton, Label, Monogram, Rule, SecondaryButton, SignalButton, StatCard } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
+import { useWindowedPlayback } from '../hooks/useWindowedPlayback';
 import { blockUser, reportContent, unblockUser } from '../lib/moderation';
 import { fetchUserNotesPage } from '../lib/notes';
 import { fetchPublicProfile, follow, unfollow } from '../lib/social';
@@ -32,7 +33,7 @@ export default function UserProfileScreen() {
   const [confirmReport, setConfirmReport] = useState(false); // report confirm modal
   const [modPending, setModPending] = useState(false); // block/report inflight
   const [reported, setReported] = useState(false); // report filed this session
-  const [playingNoteId, setPlayingNoteId] = useState<string | null>(null);
+  const { playingNoteId, activate, savePosition, getInitialPosition, handleFinish } = useWindowedPlayback();
 
   const cursorRef = useRef<string | null>(null);
   const inFlight = useRef(false);
@@ -267,8 +268,10 @@ export default function UserProfileScreen() {
               reactionCounts={item.reactionCounts}
               staticTotal={item.reactionTotal}
               active={item.id === playingNoteId}
-              onToggleActive={() => setPlayingNoteId((prev) => (prev === item.id ? null : item.id))}
-              onFinish={() => setPlayingNoteId(null)}
+              onActivate={() => activate(item.id)}
+              initialPosition={getInitialPosition(item.id)}
+              onSavePosition={(s) => savePosition(item.id, s)}
+              onFinish={() => handleFinish(item.id)}
             />
           )}
         />

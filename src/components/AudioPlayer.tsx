@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Pressable, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { ActivityIndicator, Pressable, View } from 'react-native';
 
 import { useAudioPlayer } from '../hooks/useAudioPlayer';
 import { colors, radius } from '../theme';
@@ -12,7 +12,9 @@ interface AudioPlayerProps {
   bars?: number;
   height?: number;
   active?: boolean;
-  onToggleActive?: () => void;
+  onActivate?: () => void;
+  initialPosition?: number;
+  onSavePosition?: (seconds: number) => void;
 }
 
 // Inline audio player. To optimize resource usage and prevent memory leaks,
@@ -20,6 +22,9 @@ interface AudioPlayerProps {
 // InactiveAudioPlayer (a purely static UI requiring 0 native audio resources).
 // Tapping play sets this note as the single active player in the parent list,
 // mounting ActiveAudioPlayer (which instantiates the native player and auto-plays).
+// Pausing keeps the player mounted+active so its position is preserved; when the
+// active note changes, the outgoing player reports its offset via onSavePosition
+// so it can resume from there next time.
 export default function AudioPlayer({
   uri,
   onStart,
@@ -27,9 +32,11 @@ export default function AudioPlayer({
   bars = 28,
   height = 64,
   active = false,
-  onToggleActive,
+  onActivate,
+  initialPosition = 0,
+  onSavePosition,
 }: AudioPlayerProps) {
-  if (!onToggleActive) {
+  if (!onActivate) {
     // Fallback if not controlled by parent list (legacy/single player mode).
     return (
       <ActiveAudioPlayer
@@ -52,7 +59,8 @@ export default function AudioPlayer({
         bars={bars}
         height={height}
         autoPlay={true}
-        onPause={onToggleActive}
+        initialPosition={initialPosition}
+        onSavePosition={onSavePosition}
       />
     );
   }
@@ -61,7 +69,7 @@ export default function AudioPlayer({
     <InactiveAudioPlayer
       bars={bars}
       height={height}
-      onPlay={onToggleActive}
+      onPlay={onActivate}
     />
   );
 }
@@ -74,7 +82,8 @@ function ActiveAudioPlayer({
   bars,
   height,
   autoPlay,
-  onPause,
+  initialPosition = 0,
+  onSavePosition,
 }: {
   uri: string | null;
   onStart?: () => void;
@@ -82,9 +91,14 @@ function ActiveAudioPlayer({
   bars: number;
   height: number;
   autoPlay: boolean;
-  onPause?: () => void;
+  initialPosition?: number;
+  onSavePosition?: (seconds: number) => void;
 }) {
-  const { toggle, playing, progress, play } = useAudioPlayer(uri, { onStart, onFinish });
+  const { toggle, playing, progress, buffering, currentTime, play } = useAudioPlayer(uri, {
+    onStart,
+    onFinish,
+    initialPosition,
+  });
 
   // Auto-play on mount when active.
   useEffect(() => {
@@ -93,20 +107,22 @@ function ActiveAudioPlayer({
     }
   }, [autoPlay, play]);
 
-  const handleToggle = () => {
-    if (playing && onPause) {
-      toggle();
-      // Inform parent that we paused.
-      onPause();
-    } else {
-      toggle();
-    }
-  };
+  // On unmount (the active note changed), report where we stopped so the parent
+  // can resume this note from the same offset later.
+  const timeRef = useRef(currentTime);
+  timeRef.current = currentTime;
+  useEffect(() => {
+    return () => onSavePosition?.(timeRef.current);
+  }, [onSavePosition]);
+
+  // Spinner while the source is still loading/buffering and can't play yet.
+  const showSpinner = buffering && !playing;
 
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
       <Pressable
-        onPress={handleToggle}
+        onPress={toggle}
+        disabled={showSpinner}
         style={({ pressed }) => ({
           width: 48,
           height: 48,
@@ -118,7 +134,7 @@ function ActiveAudioPlayer({
           justifyContent: 'center',
           transform: pressed ? [{ translateX: 1 }, { translateY: 1 }] : [],
         })}>
-        <PlayPauseGlyph playing={playing} />
+        {showSpinner ? <ActivityIndicator color={colors.ink} /> : <PlayPauseGlyph playing={playing} />}
       </Pressable>
       <View style={{ flex: 1 }}>
         <WaveformVisualizer bars={bars} height={height} progress={progress} />

@@ -7,6 +7,7 @@ import AppHeader from '../components/AppHeader';
 import VoiceNoteCard from '../components/VoiceNoteCard';
 import { Body, ConfirmModal, Display, Label, Rule, Segmented, SignalButton, StatCard } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
+import { useWindowedPlayback } from '../hooks/useWindowedPlayback';
 import { deleteNote, fetchProfileStats, fetchUserNotesPage } from '../lib/notes';
 import { colors, space } from '../theme';
 import type { ProfileStats, UserNote } from '../types';
@@ -33,7 +34,7 @@ export default function MyNotesScreen() {
   const [pendingDelete, setPendingDelete] = useState<UserNote | null>(null); // note awaiting confirm
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [sort, setSort] = useState<'new' | 'top'>('new');
-  const [playingNoteId, setPlayingNoteId] = useState<string | null>(null);
+  const { playingNoteId, activate, savePosition, getInitialPosition, handleFinish } = useWindowedPlayback();
 
   const cursorRef = useRef<string | null>(null);
   const inFlight = useRef(false);
@@ -178,8 +179,10 @@ export default function MyNotesScreen() {
               staticTotal={item.reactionTotal}
               onDelete={deletingId === item.id ? undefined : () => { setDeleteError(null); setPendingDelete(item); }}
               active={item.id === playingNoteId}
-              onToggleActive={() => setPlayingNoteId((prev) => (prev === item.id ? null : item.id))}
-              onFinish={() => setPlayingNoteId(null)}
+              onActivate={() => activate(item.id)}
+              initialPosition={getInitialPosition(item.id)}
+              onSavePosition={(s) => savePosition(item.id, s)}
+              onFinish={() => handleFinish(item.id)}
             />
           )}
         />

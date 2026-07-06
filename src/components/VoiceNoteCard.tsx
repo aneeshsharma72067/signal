@@ -56,7 +56,9 @@ interface VoiceNoteCardProps {
   own?: boolean;
   onPressAuthor?: () => void;
   active?: boolean;
-  onToggleActive?: () => void;
+  onActivate?: () => void;
+  initialPosition?: number;
+  onSavePosition?: (seconds: number) => void;
 }
 
 export default function VoiceNoteCard({
@@ -76,7 +78,9 @@ export default function VoiceNoteCard({
   own,
   onPressAuthor,
   active,
-  onToggleActive,
+  onActivate,
+  initialPosition,
+  onSavePosition,
 }: VoiceNoteCardProps) {
   const interactive = typeof onReact === 'function';
   const top = !interactive && reactionCounts ? topReactions(reactionCounts) : null;
@@ -115,7 +119,9 @@ export default function VoiceNoteCard({
         onStart={onStart}
         onFinish={onFinish}
         active={active}
-        onToggleActive={onToggleActive}
+        onActivate={onActivate}
+        initialPosition={initialPosition}
+        onSavePosition={onSavePosition}
       />
 
       {interactive ? (

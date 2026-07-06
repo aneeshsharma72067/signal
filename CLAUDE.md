@@ -1,1 +1,5 @@
-@AGENTS.md
+- Commit frequently, after every minor feature
+- Write detailed developer friendly comments
+- Keep code clean, structured
+- Maintain a CHANGELOG.md, writing changes frequently
+- Don't add yourself as a co-author

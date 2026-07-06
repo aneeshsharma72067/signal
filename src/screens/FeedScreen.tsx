@@ -8,6 +8,7 @@ import VoiceNoteCard from '../components/VoiceNoteCard';
 import { Body, Display, Label, Rule, Segmented, SignalButton } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 import { useFeed } from '../hooks/useFeed';
+import { useWindowedPlayback } from '../hooks/useWindowedPlayback';
 import { colors, space } from '../theme';
 import type { FeedNote, FeedScope, ReactionEmoji } from '../types';
 
@@ -36,7 +37,7 @@ export default function FeedScreen() {
     react,
   } = useFeed(scope);
   const [reactingId, setReactingId] = useState<string | null>(null);
-  const [playingNoteId, setPlayingNoteId] = useState<string | null>(null);
+  const { playingNoteId, activate, savePosition, getInitialPosition, handleFinish } = useWindowedPlayback();
 
   const onReact = useCallback(
     async (noteId: string, emoji: ReactionEmoji) => {
@@ -141,8 +142,10 @@ export default function FeedScreen() {
             onReact={(emoji) => onReact(item.id, emoji)}
             reactionDisabled={reactingId === item.id}
             active={item.id === playingNoteId}
-            onToggleActive={() => setPlayingNoteId((prev) => (prev === item.id ? null : item.id))}
-            onFinish={() => setPlayingNoteId(null)}
+            onActivate={() => activate(item.id)}
+            initialPosition={getInitialPosition(item.id)}
+            onSavePosition={(s) => savePosition(item.id, s)}
+            onFinish={() => handleFinish(item.id)}
           />
         )}
       />
