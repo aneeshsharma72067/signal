@@ -72,6 +72,9 @@ export default function GifSearchBottomSheet({
   // Track if sheet is open/closing to prevent double triggers
   const isClosing = useRef(false);
 
+  // Search timeout ref for debouncing Giphy API calls
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const slideIn = useCallback(() => {
     isClosing.current = false;
     Animated.parallel([
@@ -113,13 +116,26 @@ export default function GifSearchBottomSheet({
   useEffect(() => {
     if (visible) {
       slideIn();
+      setQuery('');
       fetchGifs(true, '');
     } else {
       translateY.setValue(SCREEN_HEIGHT);
       backdropOpacity.setValue(0);
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, slideIn]);
+
+  // Clean up search timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Pan responder for drag-to-dismiss gesture
   const panResponder = useRef(
@@ -205,11 +221,25 @@ export default function GifSearchBottomSheet({
 
   const handleSearch = (text: string) => {
     setQuery(text);
-    fetchGifs(true, text);
+
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (text.trim() === '') {
+      fetchGifs(true, '');
+    } else {
+      searchTimeoutRef.current = setTimeout(() => {
+        fetchGifs(true, text);
+      }, 400);
+    }
   };
 
   const handleSelectTag = (tag: string) => {
     setQuery(tag);
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
     fetchGifs(true, tag);
   };
 

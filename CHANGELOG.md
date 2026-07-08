@@ -6,7 +6,7 @@ All notable changes to this project are documented here.
 
 ### Added
 - **GIF Replies in Thread**: Users can now reply to voice notes using GIFs. Adds a "● GIF" button side-by-side with "● AUDIO" reply button at the bottom of `ThreadScreen`.
-- **Instagram-Style GIF Search Bottom Sheet**: Custom Giphy search modal opens in a sliding bottom sheet with a drag handle. Supports touch gestures (drag down to dismiss), search queries, and quick tags carousel (CAT, EXCITED, DANCE, etc.).
+- **Instagram-Style GIF Search Bottom Sheet**: Custom Giphy search modal opens in a sliding bottom sheet with a drag handle. Supports touch gestures (drag down to dismiss), search queries, and quick tags carousel (CAT, EXCITED, DANCE, etc.). Includes query debouncing (400ms delay) to optimize Giphy API calls and immediate fetch on clearing search or clicking quick tags.
 - **GIF support in DB**: Supabase migration `0018_support_gifs.sql` makes `audio_url` nullable and adds `gif_url` to `public.voice_notes`, with a check constraint to ensure each note contains exactly one audio or GIF content.
 - **GIF support in Cards**: `ReplyCard` (on `ThreadScreen`) and `UserReplyCard` (on `MyNotesScreen`) now render the selected GIF via `expo-image` when `gif_url` is present, instead of the AudioPlayer.
 - **My Notes — REPLIES tab**: Archive screen now has NOTES / REPLIES tabs. The
