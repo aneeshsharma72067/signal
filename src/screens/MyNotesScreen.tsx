@@ -2,11 +2,11 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
 
 import AppHeader from '../components/AppHeader';
 import AudioPlayer from '../components/AudioPlayer';
-import VoiceNoteCard from '../components/VoiceNoteCard';
-import { timeAgo } from '../components/VoiceNoteCard';
+import VoiceNoteCard, { timeAgo } from '../components/VoiceNoteCard';
 import { Body, Card, ConfirmModal, Display, Label, Rule, Segmented, SignalButton, StatCard } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 import { useWindowedPlayback } from '../hooks/useWindowedPlayback';
@@ -308,7 +308,7 @@ export default function MyNotesScreen() {
               <View style={{ gap: space.elementGap, alignItems: 'center', paddingTop: 32 }}>
                 <Display style={{ textAlign: 'center' }}>NO{'\n'}REPLIES.</Display>
                 <Body muted style={{ fontSize: 17, textAlign: 'center' }}>
-                  Tap a note's reply label to jump in.
+                  Tap a note&apos;s reply label to jump in.
                 </Body>
               </View>
             ) : (
@@ -410,17 +410,32 @@ function UserReplyCard({
         </Label>
       </Pressable>
 
-      {/* Compact waveform player */}
-      <AudioPlayer
-        uri={reply.audio_url}
-        bars={24}
-        height={52}
-        active={active}
-        onActivate={onActivate}
-        initialPosition={initialPosition}
-        onSavePosition={onSavePosition}
-        onFinish={onFinish}
-      />
+      {/* Compact waveform player or GIF */}
+      {reply.gif_url ? (
+        <Image
+          source={{ uri: reply.gif_url }}
+          style={{
+            width: '100%',
+            height: 180,
+            borderRadius: radius.md,
+            borderWidth: 2,
+            borderColor: colors.ink,
+            backgroundColor: colors.surfaceContainer,
+          }}
+          contentFit="cover"
+        />
+      ) : (
+        <AudioPlayer
+          uri={reply.audio_url}
+          bars={24}
+          height={52}
+          active={active}
+          onActivate={onActivate}
+          initialPosition={initialPosition}
+          onSavePosition={onSavePosition}
+          onFinish={onFinish}
+        />
+      )}
     </Card>
   );
 }

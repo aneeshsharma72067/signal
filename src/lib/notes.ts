@@ -76,11 +76,11 @@ const FEED_PAGE_SIZE = 10;
 // denormalized off the row (migration 0006) — no per-reaction fan-out.
 type FeedRow = Pick<
   VoiceNoteRow,
-  'id' | 'audio_url' | 'duration' | 'created_at' | 'user_id' | 'reaction_total' | 'reaction_counts' | 'reply_count'
+  'id' | 'audio_url' | 'duration' | 'created_at' | 'user_id' | 'reaction_total' | 'reaction_counts' | 'reply_count' | 'gif_url'
 >;
 
 // Columns to select for a feed row (aggregates included, reply count included).
-const FEED_COLUMNS = 'id, audio_url, duration, created_at, user_id, reaction_total, reaction_counts, reply_count';
+const FEED_COLUMNS = 'id, audio_url, duration, created_at, user_id, reaction_total, reaction_counts, reply_count, gif_url';
 
 // Attach poster usernames + the viewer's own reaction to a batch of note rows.
 // Reaction COUNTS are read straight off the denormalized aggregate columns, so
@@ -115,6 +115,7 @@ async function decorateNotes(rows: FeedRow[], viewerId: string): Promise<FeedNot
   const notes = rows.map((n) => ({
     id: n.id,
     audio_url: n.audio_url,
+    gif_url: n.gif_url,
     duration: n.duration,
     created_at: n.created_at,
     user_id: n.user_id,
@@ -318,7 +319,7 @@ export async function deleteNote({
 const USER_NOTES_PAGE_SIZE = 15;
 
 // Columns for a user note (denormalized reaction aggregates + reply count).
-const USER_NOTE_COLUMNS = 'id, audio_url, duration, created_at, reaction_total, reaction_counts, reply_count';
+const USER_NOTE_COLUMNS = 'id, audio_url, duration, created_at, reaction_total, reaction_counts, reply_count, gif_url';
 
 // One page of a user's notes, newest first. Keyset pagination: pass the last
 // item's `created_at` as `before` for the next page. Reaction summaries come
@@ -349,11 +350,12 @@ export async function fetchUserNotesPage({
 
   const rows = (data ?? []) as Pick<
     VoiceNoteRow,
-    'id' | 'audio_url' | 'duration' | 'created_at' | 'reaction_total' | 'reaction_counts' | 'reply_count'
+    'id' | 'audio_url' | 'duration' | 'created_at' | 'reaction_total' | 'reaction_counts' | 'reply_count' | 'gif_url'
   >[];
   const notes: UserNote[] = rows.map((n) => ({
     id: n.id,
     audio_url: n.audio_url,
+    gif_url: n.gif_url,
     duration: n.duration,
     created_at: n.created_at,
     reactionCounts: n.reaction_counts ?? {},
@@ -384,7 +386,7 @@ export async function fetchUserRepliesPage({
   // Select reply rows with their parent's user_id so we can resolve the author.
   let query = supabase
     .from('voice_notes')
-    .select('id, audio_url, duration, created_at, parent_note_id, voice_notes!parent_note_id(user_id)')
+    .select('id, audio_url, duration, created_at, parent_note_id, gif_url, voice_notes!parent_note_id(user_id)')
     .eq('user_id', userId)
     // Only reply rows (parent_note_id IS NOT NULL).
     .not('parent_note_id', 'is', null)
@@ -397,7 +399,8 @@ export async function fetchUserRepliesPage({
 
   const rows = (data ?? []) as {
     id: string;
-    audio_url: string;
+    audio_url: string | null;
+    gif_url?: string | null;
     duration: number | null;
     created_at: string;
     parent_note_id: string;
@@ -438,6 +441,7 @@ export async function fetchUserRepliesPage({
     return {
       id: r.id,
       audio_url: r.audio_url,
+      gif_url: r.gif_url,
       duration: r.duration,
       created_at: r.created_at,
       parentNoteId: r.parent_note_id,
@@ -469,7 +473,7 @@ export async function fetchProfileStats(userId: string): Promise<ProfileStats> {
 const REPLY_PAGE_SIZE = 10;
 
 // Columns selected for each reply row in a thread.
-const REPLY_COLUMNS = 'id, audio_url, duration, created_at, user_id';
+const REPLY_COLUMNS = 'id, audio_url, duration, created_at, user_id, gif_url';
 
 // Fetch one page of voice replies for a parent note, ordered oldest-first
 // (natural conversation flow). Keyset-paginated forward via `after`
@@ -508,7 +512,7 @@ export async function fetchRepliesPage({
 
   const rows = (data ?? []) as Pick<
     VoiceNoteRow,
-    'id' | 'audio_url' | 'duration' | 'created_at' | 'user_id'
+    'id' | 'audio_url' | 'duration' | 'created_at' | 'user_id' | 'gif_url'
   >[];
 
   if (!rows.length) return { replies: [], nextCursor: null, hasMore: false };
@@ -529,6 +533,7 @@ export async function fetchRepliesPage({
   const rawReplies: VoiceReply[] = rows.map((r) => ({
     id: r.id,
     audio_url: r.audio_url,
+    gif_url: r.gif_url,
     duration: r.duration,
     created_at: r.created_at,
     user_id: r.user_id,
@@ -589,5 +594,28 @@ export async function uploadAndReply({
     (note as VoiceNoteRow).audio_url = signed.signedUrl;
   }
 
+  return note as VoiceNoteRow;
+}
+
+// Insert a gif_reply row (parent_note_id set).
+export async function postGifReply({
+  userId,
+  gifUrl,
+  parentNoteId,
+}: {
+  userId: string;
+  gifUrl: string;
+  parentNoteId: string;
+}): Promise<VoiceNoteRow> {
+  const { data: note, error: insertError } = await supabase
+    .from('voice_notes')
+    .insert({
+      user_id: userId,
+      gif_url: gifUrl,
+      parent_note_id: parentNoteId,
+    })
+    .select()
+    .single();
+  if (insertError) throw new Error(`Could not save reply: ${insertError.message}`);
   return note as VoiceNoteRow;
 }

@@ -7,17 +7,18 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
 
 import AudioPlayer from '../components/AudioPlayer';
-import VoiceNoteCard from '../components/VoiceNoteCard';
-import { Body, Card, Label, Monogram, SignalButton } from '../components/ui';
-import { timeAgo } from '../components/VoiceNoteCard';
+import VoiceNoteCard, { timeAgo } from '../components/VoiceNoteCard';
+import { Body, Card, Label, Monogram, SignalButton, SecondaryButton } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 import { useWindowedPlayback } from '../hooks/useWindowedPlayback';
-import { fetchNoteById, fetchRepliesPage } from '../lib/notes';
+import { fetchNoteById, fetchRepliesPage, postGifReply } from '../lib/notes';
 import { supabase } from '../lib/supabase';
-import { colors, space } from '../theme';
+import { colors, radius, space } from '../theme';
 import type { FeedNote, VoiceReply } from '../types';
+import GifSearchBottomSheet from '../components/GifSearchBottomSheet';
 
 // Thread view: the parent note is shown at the top, followed by an oldest-first
 // list of voice replies. A single realtime Supabase channel (with two chained
@@ -41,6 +42,28 @@ export default function ThreadScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const cursorRef = useRef<string | null>(null);
   const inFlight = useRef(false);
+
+  // GIF Search state
+  const [showGifSearch, setShowGifSearch] = useState(false);
+  const [postingGif, setPostingGif] = useState(false);
+
+  const handleSelectGif = async (gifUrl: string) => {
+    if (!noteId || !user) return;
+    setPostingGif(true);
+    try {
+      await postGifReply({
+        userId: user.id,
+        gifUrl,
+        parentNoteId: noteId,
+      });
+      // The realtime subscription will automatically receive the insert event and fetch the new reply.
+    } catch (e: unknown) {
+      console.error(e);
+      setRepliesError(e instanceof Error ? e.message : 'Could not post GIF reply.');
+    } finally {
+      setPostingGif(false);
+    }
+  };
 
   // Single-active-player across the reply list (same hook used by feed screens).
   const { playingNoteId, activate, savePosition, getInitialPosition, handleFinish } =
@@ -291,20 +314,37 @@ export default function ThreadScreen() {
         )}
       />
 
-      {/* Fixed reply button. */}
+      {/* Fixed reply buttons (Audio & GIF side-by-side). */}
       <View
         style={{
           position: 'absolute',
           bottom: 32,
           left: space.containerPadding,
           right: space.containerPadding,
+          flexDirection: 'row',
+          gap: 12,
         }}
       >
-        <SignalButton
-          label="● REPLY"
-          onPress={() => router.navigate(`/thread/${noteId}/reply`)}
-        />
+        <View style={{ flex: 1 }}>
+          <SignalButton
+            label="● AUDIO"
+            onPress={() => router.navigate(`/thread/${noteId}/reply`)}
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          <SecondaryButton
+            label={postingGif ? 'POSTING…' : '● GIF'}
+            onPress={() => setShowGifSearch(true)}
+            disabled={postingGif}
+          />
+        </View>
       </View>
+
+      <GifSearchBottomSheet
+        visible={showGifSearch}
+        onClose={() => setShowGifSearch(false)}
+        onSelectGif={handleSelectGif}
+      />
     </SafeAreaView>
   );
 }
@@ -344,7 +384,7 @@ function ThreadHeader({ onBack }: { onBack: () => void }) {
   );
 }
 
-// Compact card for a single reply: monogram + author + timestamp + waveform player.
+// Compact card for a single reply: monogram + author + timestamp + waveform player or GIF.
 function ReplyCard({
   reply,
   isSelf,
@@ -385,17 +425,32 @@ function ReplyCard({
         </View>
       </Pressable>
 
-      {/* Waveform audio player */}
-      <AudioPlayer
-        uri={reply.audio_url}
-        bars={24}
-        height={52}
-        active={active}
-        onActivate={onActivate}
-        initialPosition={initialPosition}
-        onSavePosition={onSavePosition}
-        onFinish={onFinish}
-      />
+      {/* Waveform audio player or GIF */}
+      {reply.gif_url ? (
+        <Image
+          source={{ uri: reply.gif_url }}
+          style={{
+            width: '100%',
+            height: 180,
+            borderRadius: radius.md,
+            borderWidth: 2,
+            borderColor: colors.ink,
+            backgroundColor: colors.surfaceContainer,
+          }}
+          contentFit="cover"
+        />
+      ) : (
+        <AudioPlayer
+          uri={reply.audio_url}
+          bars={24}
+          height={52}
+          active={active}
+          onActivate={onActivate}
+          initialPosition={initialPosition}
+          onSavePosition={onSavePosition}
+          onFinish={onFinish}
+        />
+      )}
     </Card>
   );
 }

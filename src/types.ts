@@ -16,7 +16,8 @@ export interface UserRow {
 export interface VoiceNoteRow {
   id: string;
   user_id: string;
-  audio_url: string;
+  audio_url: string | null;
+  gif_url?: string | null;
   duration: number | null;
   created_at: string;
   // Denormalized reaction aggregates, maintained by a DB trigger (see
@@ -46,7 +47,8 @@ export type ReactionCounts = Partial<Record<ReactionEmoji, number>>;
 // A feed note: a voice note plus author + reaction aggregate for the viewer.
 export interface FeedNote {
   id: string;
-  audio_url: string;
+  audio_url: string | null;
+  gif_url?: string | null;
   duration: number | null;
   created_at: string;
   user_id: string;
@@ -62,7 +64,8 @@ export interface FeedNote {
 // denormalized aggregates (migration 0006) — no per-reaction rows fetched.
 export interface UserNote {
   id: string;
-  audio_url: string;
+  audio_url: string | null;
+  gif_url?: string | null;
   duration: number | null;
   created_at: string;
   reactionCounts: ReactionCounts;
@@ -181,7 +184,8 @@ export interface NotificationPage {
 // A single voice reply in a thread, decorated with its author's username.
 export interface VoiceReply {
   id: string;
-  audio_url: string;
+  audio_url: string | null;
+  gif_url?: string | null;
   duration: number | null;
   created_at: string;
   user_id: string;
@@ -199,7 +203,8 @@ export interface ReplyPage {
 // `parentAuthor` is the username of whoever posted the note they replied to.
 export interface UserReply {
   id: string;
-  audio_url: string;
+  audio_url: string | null;
+  gif_url?: string | null;
   duration: number | null;
   created_at: string;
   // The note this reply belongs to — lets the UI show "↩ reply to @X" context.
