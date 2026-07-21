@@ -101,6 +101,9 @@ export interface PublicProfile {
   followerCount: number;
   followingCount: number;
   isFollowing: boolean;
+  // Does this user follow the viewer back? Combined with isFollowing this gives
+  // mutual-follow, which gates the ability to start a direct voice message.
+  followsYou: boolean;
   isSelf: boolean;
   isBlocked: boolean; // does the viewer block this user?
 }
@@ -216,5 +219,42 @@ export interface UserReply {
 export interface UserReplyPage {
   replies: UserReply[];
   nextCursor: string | null;
+  hasMore: boolean;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Direct voice messages (1:1 audio DM — see migration 0019)
+// ─────────────────────────────────────────────────────────────
+
+// One conversation in the inbox, decorated for the viewer: the OTHER
+// participant, the recency sort key, and the viewer's unread count.
+export interface Conversation {
+  id: string;
+  // The participant who is not the viewer (the person you're talking to).
+  other: { id: string; username: string };
+  lastMessageAt: string; // conversations.last_message_at — inbox sort key
+  // Number of messages in this conversation the viewer hasn't heard yet.
+  unreadCount: number;
+}
+
+// A single voice message inside a conversation. `mine` marks messages the
+// viewer sent (drives bubble alignment). `read` reflects read_at for the
+// sender's own outgoing messages (read receipts).
+export interface DirectMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  audio_url: string; // signed, ready to play
+  duration: number | null;
+  createdAt: string;
+  mine: boolean;
+  read: boolean;
+}
+
+// A page of messages in a conversation, oldest-first (chat order), keyset
+// paginated by created_at.
+export interface MessagePage {
+  messages: DirectMessage[];
+  nextCursor: string | null; // created_at of the OLDEST message in this page
   hasMore: boolean;
 }

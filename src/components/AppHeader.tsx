@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { useUnreadBadge } from '../hooks/useUnreadBadge';
+import { useUnreadMessages } from '../hooks/useUnreadMessages';
 import { colors, fonts, radius } from '../theme';
 import { Headline, Label } from './ui';
 
@@ -19,10 +20,14 @@ export default function AppHeader() {
   const router = useRouter();
   const pathname = usePathname();
   const { unreadCount, refresh } = useUnreadBadge();
+  const { unreadCount: unreadMessages, refresh: refreshMessages } = useUnreadMessages();
 
-  // Re-sync the badge on every route change so returning from the Activity
-  // screen (which marks all read) drops the count back to 0.
-  useEffect(() => { refresh(); }, [pathname, refresh]);
+  // Re-sync both badges on every route change so returning from the Activity
+  // or Messages screen (which mark things read) drops the counts back down.
+  useEffect(() => {
+    refresh();
+    refreshMessages();
+  }, [pathname, refresh, refreshMessages]);
 
   return (
     <View
@@ -62,6 +67,13 @@ export default function AppHeader() {
             style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}>
             <Ionicons name="search" size={22} color={colors.ink} />
           </Pressable>
+          <IconWithBadge
+            name="chatbubble-ellipses-outline"
+            activeName="chatbubble-ellipses"
+            count={unreadMessages}
+            onPress={() => router.navigate('/messages')}
+            accessibilityLabel="Messages"
+          />
           <Bell count={unreadCount} onPress={() => router.navigate('/notifications')} />
         </View>
       </View>
@@ -69,12 +81,25 @@ export default function AppHeader() {
   );
 }
 
-// Bell glyph with an unread badge. The badge is a lime pill showing the count
-// (capped at 9+); hidden when there's nothing unread.
-function Bell({ count, onPress }: { count: number; onPress: () => void }) {
+// A tappable Ionicon with an unread-count badge. The badge is a lime pill
+// showing the count (capped at 9+); hidden when there's nothing unread. The
+// icon swaps to its filled variant while there are unread items.
+function IconWithBadge({
+  name,
+  activeName,
+  count,
+  onPress,
+  accessibilityLabel,
+}: {
+  name: keyof typeof Ionicons.glyphMap;
+  activeName: keyof typeof Ionicons.glyphMap;
+  count: number;
+  onPress: () => void;
+  accessibilityLabel: string;
+}) {
   return (
-    <Pressable onPress={onPress} hitSlop={8} accessibilityLabel="Activity" style={{ width: 24, height: 24 }}>
-      <Ionicons name={count > 0 ? 'notifications' : 'notifications-outline'} size={22} color={colors.ink} />
+    <Pressable onPress={onPress} hitSlop={8} accessibilityLabel={accessibilityLabel} style={{ width: 24, height: 24 }}>
+      <Ionicons name={count > 0 ? activeName : name} size={22} color={colors.ink} />
       {count > 0 && (
         <View
           style={{
@@ -97,5 +122,18 @@ function Bell({ count, onPress }: { count: number; onPress: () => void }) {
         </View>
       )}
     </Pressable>
+  );
+}
+
+// Activity bell — thin wrapper over IconWithBadge with the notification glyphs.
+function Bell({ count, onPress }: { count: number; onPress: () => void }) {
+  return (
+    <IconWithBadge
+      name="notifications-outline"
+      activeName="notifications"
+      count={count}
+      onPress={onPress}
+      accessibilityLabel="Activity"
+    />
   );
 }

@@ -153,6 +153,7 @@ export async function fetchPublicProfile(
     { count: followerCount, error: fErr },
     { count: followingCount, error: gErr },
     edgeRes,
+    backEdgeRes,
     isBlocked,
   ] = await Promise.all([
     supabase.from('public_usernames').select('username').eq('id', userId).maybeSingle(),
@@ -167,6 +168,16 @@ export async function fetchPublicProfile(
           .eq('follower_id', viewerId)
           .eq('followee_id', userId)
           .maybeSingle(),
+    // Reverse edge: does the target follow the viewer? Together with edgeRes
+    // this yields mutual-follow, which gates direct messaging.
+    isSelf
+      ? Promise.resolve(null)
+      : supabase
+          .from('follows')
+          .select('follower_id')
+          .eq('follower_id', userId)
+          .eq('followee_id', viewerId)
+          .maybeSingle(),
     isSelf ? Promise.resolve(false) : isBlocking(viewerId, userId),
   ]);
   if (nErr) throw new Error(nErr.message);
@@ -174,6 +185,7 @@ export async function fetchPublicProfile(
   if (fErr) throw new Error(fErr.message);
   if (gErr) throw new Error(gErr.message);
   if (edgeRes?.error) throw new Error(edgeRes.error.message);
+  if (backEdgeRes?.error) throw new Error(backEdgeRes.error.message);
 
   const statsRow = Array.isArray(statsData) ? statsData[0] : statsData;
 
@@ -184,6 +196,7 @@ export async function fetchPublicProfile(
     followerCount: followerCount ?? 0,
     followingCount: followingCount ?? 0,
     isFollowing: !!edgeRes?.data,
+    followsYou: !!backEdgeRes?.data,
     isSelf,
     isBlocked,
   };

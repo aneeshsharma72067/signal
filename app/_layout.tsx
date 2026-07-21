@@ -89,6 +89,9 @@ function RootStack() {
             animation: "slide_from_bottom",
           }}
         />
+        {/* Direct voice messages: inbox + 1:1 chat. */}
+        <Stack.Screen name="messages/index" />
+        <Stack.Screen name="messages/[id]" />
         {/* Thread view: parent note + reply list. */}
         <Stack.Screen name="thread/[id]" />
         {/* Reply record modal: full-screen record flow for voice replies. */}

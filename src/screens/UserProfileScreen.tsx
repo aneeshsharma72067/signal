@@ -7,6 +7,7 @@ import VoiceNoteCard from '../components/VoiceNoteCard';
 import { Body, ConfirmModal, Display, IconButton, Label, Monogram, Rule, SecondaryButton, SignalButton, StatCard } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 import { useWindowedPlayback } from '../hooks/useWindowedPlayback';
+import { getOrCreateConversation } from '../lib/messages';
 import { blockUser, reportContent, unblockUser } from '../lib/moderation';
 import { fetchUserNotesPage } from '../lib/notes';
 import { fetchPublicProfile, follow, unfollow } from '../lib/social';
@@ -33,6 +34,7 @@ export default function UserProfileScreen() {
   const [confirmReport, setConfirmReport] = useState(false); // report confirm modal
   const [modPending, setModPending] = useState(false); // block/report inflight
   const [reported, setReported] = useState(false); // report filed this session
+  const [dmPending, setDmPending] = useState(false); // opening a DM inflight
   const { playingNoteId, activate, savePosition, getInitialPosition, handleFinish } = useWindowedPlayback();
 
   const cursorRef = useRef<string | null>(null);
@@ -131,6 +133,22 @@ export default function UserProfileScreen() {
     }
   }, [data, modPending, user, userId]);
 
+  // Open (or lazily create) the 1:1 voice conversation with this user, then
+  // navigate into the chat. Gated in the UI to mutual-follow; RLS enforces it
+  // server-side too, so a failed insert surfaces as an error banner.
+  const openConversation = useCallback(async () => {
+    if (!data || data.isSelf || dmPending) return;
+    setDmPending(true);
+    try {
+      const conversationId = await getOrCreateConversation(user!.id, userId!);
+      router.navigate(`/messages/${conversationId}`);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDmPending(false);
+    }
+  }, [data, dmPending, user, userId, router]);
+
   // File a report against this user (a generic reason — the profile-level flag).
   const submitReport = useCallback(async () => {
     if (!data || data.isSelf || modPending) return;
@@ -224,6 +242,17 @@ export default function UserProfileScreen() {
                 ) : (
                   <SignalButton label={pending ? '…' : '+ FOLLOW'} onPress={toggleFollow} disabled={pending} />
                 ))}
+
+              {/* Direct message: only between users who follow each other back.
+                  RLS enforces the same rule; this just hides an action that
+                  would fail. Hidden when blocked. */}
+              {!data?.isSelf && !data?.isBlocked && data?.isFollowing && data?.followsYou && (
+                <SecondaryButton
+                  label={dmPending ? '…' : '✎ MESSAGE'}
+                  onPress={openConversation}
+                  disabled={dmPending}
+                />
+              )}
 
               {/* Moderation controls: block toggle + report (not for own profile). */}
               {!data?.isSelf && (
