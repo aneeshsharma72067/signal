@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { fetchBlockedIds } from '../lib/moderation';
 import { fetchFeedPage, fetchNoteById, toggleReaction } from '../lib/notes';
+import { fetchFollowingIds } from '../lib/social';
 import { supabase } from '../lib/supabase';
 import type { FeedNote, FeedScope, ReactionCounts, ReactionEmoji, VoiceNoteRow } from '../types';
 
@@ -114,14 +115,16 @@ export function useFeed(scope: FeedScope = 'everyone') {
             // Don't surface a blocked author's live broadcast.
             const blocked = await fetchBlockedIds(viewerId);
             if (blocked.includes(row.user_id)) return;
+            // 'following' scope: only surface authors the viewer actually
+            // follows. Gate on the live follow set (not the notes already shown)
+            // so a followed user's FIRST note still pushes through — the old
+            // "do we track this author?" check silently dropped it.
+            if (scope === 'following') {
+              const following = await fetchFollowingIds(viewerId);
+              if (!following.includes(row.user_id)) return;
+            }
             const note = await fetchNoteById(row.id, viewerId);
             if (!note) return;
-            // 'following' scope: only surface authors the viewer follows. The
-            // note passes through fetchFeedPage's filter on next refresh; for the
-            // live push, gate on whether we already track that author.
-            if (scope === 'following' && !notesRef.current.some((n) => n.user_id === row.user_id)) {
-              return;
-            }
             setNotes((prev) => (prev.some((n) => n.id === note.id) ? prev : [note, ...prev]));
           } catch {
             // Best-effort live update; a failed hydrate just waits for refresh.

@@ -73,7 +73,7 @@ export default function GifSearchBottomSheet({
   const isClosing = useRef(false);
 
   // Search timeout ref for debouncing Giphy API calls
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const slideIn = useCallback(() => {
     isClosing.current = false;

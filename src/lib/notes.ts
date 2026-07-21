@@ -47,6 +47,9 @@ export async function uploadAndPost({
 
   const { data: pub } = supabase.storage.from(VOICE_NOTES_BUCKET).getPublicUrl(fileName);
   const audioUrl = pub.publicUrl;
+  // Guard against an empty URL slipping into the row (would store a note with no
+  // playable audio). Shouldn't happen, but the insert is the point of no return.
+  if (!audioUrl) throw new Error('Could not resolve the uploaded audio URL.');
 
   const { data: note, error: insertError } = await supabase
     .from('voice_notes')
@@ -573,6 +576,9 @@ export async function uploadAndReply({
 
   const { data: pub } = supabase.storage.from(VOICE_NOTES_BUCKET).getPublicUrl(fileName);
   const audioUrl = pub.publicUrl;
+  // Guard against an empty URL slipping into the row (would store a note with no
+  // playable audio). Shouldn't happen, but the insert is the point of no return.
+  if (!audioUrl) throw new Error('Could not resolve the uploaded audio URL.');
 
   const { data: note, error: insertError } = await supabase
     .from('voice_notes')
