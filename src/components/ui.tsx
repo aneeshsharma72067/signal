@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { type ComponentProps, type ReactNode, useState } from 'react';
+import { type ComponentProps, type ReactNode, useEffect, useState } from 'react';
 import {
   Modal,
   Pressable,
@@ -10,6 +10,13 @@ import {
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { brutalistShadow, colors, fonts, iosFocusShadow, radius, space } from '../theme';
 
@@ -461,26 +468,53 @@ export function ConfirmModal({
   onCancel: () => void;
 }) {
   const confirmFill = tone === 'danger' ? colors.errorContainer : colors.signal;
+
+  // Entrance animation: fade the backdrop and spring the card up from a slightly
+  // smaller, lower resting position. `progress` (0→1) drives the backdrop; the
+  // card runs its own spring so it overshoots with a little bounce.
+  const progress = useSharedValue(0);
+  const cardScale = useSharedValue(0.9);
+  const cardShift = useSharedValue(16);
+  useEffect(() => {
+    if (visible) {
+      progress.value = withTiming(1, { duration: 180, easing: Easing.out(Easing.quad) });
+      cardScale.value = withSpring(1, { damping: 14, stiffness: 220, mass: 0.7 });
+      cardShift.value = withSpring(0, { damping: 15, stiffness: 220, mass: 0.7 });
+    } else {
+      // Snap back so the next open animates from the start (Modal unmounts content).
+      progress.value = 0;
+      cardScale.value = 0.9;
+      cardShift.value = 16;
+    }
+  }, [visible, progress, cardScale, cardShift]);
+
+  const backdropStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
+  const cardStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: cardScale.value }, { translateY: cardShift.value }],
+  }));
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel} statusBarTranslucent>
-      {/* Backdrop — tap to dismiss. */}
-      <Pressable
-        onPress={busy ? undefined : onCancel}
-        style={{ flex: 1, backgroundColor: 'rgba(26,28,28,0.55)', justifyContent: 'center', padding: space.containerPadding }}>
-        {/* Stop propagation so taps inside the card don't dismiss. */}
-        <Pressable onPress={() => {}} style={{ alignSelf: 'stretch' }}>
-          <View
-            style={[
-              {
-                backgroundColor: colors.canvas,
-                borderWidth: 2,
-                borderColor: colors.ink,
-                borderRadius: radius.lg,
-                padding: 24,
-                gap: 20,
-              },
-              brutalistShadow,
-            ]}>
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onCancel} statusBarTranslucent>
+      {/* Backdrop — tap to dismiss. Opacity animated via reanimated. */}
+      <Animated.View style={[{ flex: 1 }, backdropStyle]}>
+        <Pressable
+          onPress={busy ? undefined : onCancel}
+          style={{ flex: 1, backgroundColor: 'rgba(26,28,28,0.55)', justifyContent: 'center', padding: space.containerPadding }}>
+          {/* Stop propagation so taps inside the card don't dismiss. */}
+          <Pressable onPress={() => {}} style={{ alignSelf: 'stretch' }}>
+            <Animated.View
+              style={[
+                {
+                  backgroundColor: colors.canvas,
+                  borderWidth: 2,
+                  borderColor: colors.ink,
+                  borderRadius: radius.lg,
+                  padding: 24,
+                  gap: 20,
+                },
+                brutalistShadow,
+                cardStyle,
+              ]}>
             <View style={{ gap: 10 }}>
               <Headline style={{ fontSize: 26, lineHeight: 30 }}>{title}</Headline>
               {message ? <Body muted style={{ fontSize: 16 }}>{message}</Body> : null}
@@ -529,9 +563,10 @@ export function ConfirmModal({
                 )}
               </Pressable>
             </View>
-          </View>
+            </Animated.View>
+          </Pressable>
         </Pressable>
-      </Pressable>
+      </Animated.View>
     </Modal>
   );
 }

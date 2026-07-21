@@ -1,4 +1,12 @@
+import * as Haptics from 'expo-haptics';
 import { Pressable, Text, View } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { brutalistShadow, colors, radius, REACTION_EMOJIS } from '../theme';
 import type { ReactionCounts, ReactionEmoji } from '../types';
@@ -214,46 +222,111 @@ function ReactionBar({
 }) {
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-      {REACTION_EMOJIS.map((emoji) => {
-        const count = counts[emoji] ?? 0;
-        const mine = myReaction === emoji;
-        return (
-          <Pressable
-            key={emoji}
-            onPress={() => onReact(emoji)}
-            disabled={disabled}
-            accessibilityLabel={`React ${emoji}`}
-            style={({ pressed }) => [
-              {
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 5,
-                paddingHorizontal: 11,
-                height: 38,
-                minWidth: 38,
-                justifyContent: 'center',
-                borderWidth: 2,
-                borderColor: colors.ink,
-                borderRadius: radius.full,
-                backgroundColor: mine ? colors.signal : colors.canvas,
-                opacity: disabled && !mine ? 0.5 : 1,
-              },
-              pressed && !disabled ? { transform: [{ translateX: 2 }, { translateY: 2 }] } : mine ? brutalistShadow : null,
-            ]}>
-            <Text style={{ fontSize: 18 }}>{emoji}</Text>
-            {count > 0 && (
-              <Text style={{ fontFamily: 'JetBrainsMono_600SemiBold', fontSize: 12, color: colors.ink }}>
-                {count}
-              </Text>
-            )}
-          </Pressable>
-        );
-      })}
+      {REACTION_EMOJIS.map((emoji) => (
+        <ReactionPill
+          key={emoji}
+          emoji={emoji}
+          count={counts[emoji] ?? 0}
+          mine={myReaction === emoji}
+          disabled={disabled}
+          onReact={onReact}
+        />
+      ))}
     </View>
   );
 }
 
+// One reaction pill with a tactile response: on tap it fires a light haptic,
+// springs a quick scale bounce, and — when the tap SELECTS the reaction (not
+// un-selects) — floats a ghost copy of the emoji up and out as a little burst.
+function ReactionPill({
+  emoji,
+  count,
+  mine,
+  disabled,
+  onReact,
+}: {
+  emoji: ReactionEmoji;
+  count: number;
+  mine: boolean;
+  disabled?: boolean;
+  onReact: (emoji: ReactionEmoji) => void;
+}) {
+  const scale = useSharedValue(1);
+  // Burst: a second emoji that rises + fades. `burst` 0→1 drives it.
+  const burst = useSharedValue(0);
+
+  const pillStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const burstStyle = useAnimatedStyle(() => ({
+    opacity: burst.value === 0 ? 0 : 1 - burst.value,
+    transform: [{ translateY: -28 * burst.value }, { scale: 1 + 0.4 * burst.value }],
+  }));
+
+  function handlePress() {
+    if (disabled) return;
+    // Fire-and-forget; haptics are best-effort (unsupported on some devices).
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    // Bounce: dip then spring back with a slight overshoot.
+    scale.value = withSequence(
+      withTiming(0.86, { duration: 80 }),
+      withSpring(1, { damping: 9, stiffness: 320 })
+    );
+    // Only burst when this press turns the reaction ON (mine flips false→true).
+    if (!mine) {
+      burst.value = 0;
+      burst.value = withTiming(1, { duration: 550 });
+    }
+    onReact(emoji);
+  }
+
+  return (
+    <Animated.View style={pillStyle}>
+      <Pressable
+        onPress={handlePress}
+        disabled={disabled}
+        accessibilityLabel={`React ${emoji}`}
+        style={({ pressed }) => [
+          {
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 5,
+            paddingHorizontal: 11,
+            height: 38,
+            minWidth: 38,
+            justifyContent: 'center',
+            borderWidth: 2,
+            borderColor: colors.ink,
+            borderRadius: radius.full,
+            backgroundColor: mine ? colors.signal : colors.canvas,
+            opacity: disabled && !mine ? 0.5 : 1,
+          },
+          pressed && !disabled ? { transform: [{ translateX: 2 }, { translateY: 2 }] } : mine ? brutalistShadow : null,
+        ]}>
+        <Text style={{ fontSize: 18 }}>{emoji}</Text>
+        {count > 0 && (
+          <Text style={{ fontFamily: 'JetBrainsMono_600SemiBold', fontSize: 12, color: colors.ink }}>
+            {count}
+          </Text>
+        )}
+        {/* Floating burst copy — absolutely positioned, ignores touches. */}
+        <Animated.Text
+          pointerEvents="none"
+          style={[
+            { position: 'absolute', alignSelf: 'center', fontSize: 18 },
+            burstStyle,
+          ]}>
+          {emoji}
+        </Animated.Text>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+// Format a clip length (seconds) as m:ss — handles durations over 59s rather
+// than hardcoding the minute to 0.
 function formatDuration(sec: number) {
-  const s = Math.max(0, Math.floor(sec));
-  return `0:${s < 10 ? '0' : ''}${s}`;
+  const total = Math.max(0, Math.floor(sec));
+  const m = Math.floor(total / 60);
+  const rem = total % 60;
+  return `${m}:${rem < 10 ? '0' : ''}${rem}`;
 }
