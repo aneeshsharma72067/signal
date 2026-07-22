@@ -48,7 +48,13 @@
           "microphonePermission": "Signal needs microphone access to record your 30-second voice notes."
         }
       ],
-      "expo-notifications"
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-monochrome.png",
+          "color": "#ffffff"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
