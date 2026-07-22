@@ -48,6 +48,8 @@ google-services.json
 google-service-account*.json
 # Firebase Admin SDK private keys (FCM v1) — never commit
 *-firebase-adminsdk-*.json
+# base64-encoded secrets staged for GitHub secret upload
+*.b64
 
 
 2026-*.txt
