@@ -44,6 +44,8 @@ app-example
 
 # Local secrets
 .env
+google-services.json
+google-service-account*.json
 
 
 2026-*.txt

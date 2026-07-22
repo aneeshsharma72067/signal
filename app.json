@@ -24,6 +24,7 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
+      "googleServicesFile": "./google-services.json",
       "package": "com.anonymous.signal"
     },
     "web": {
@@ -52,6 +53,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": false
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d8608a30-ddcb-4950-8ad6-b503aa077d4a"
+      }
+    },
+    "owner": "aneesh.sharma"
   }
 }
