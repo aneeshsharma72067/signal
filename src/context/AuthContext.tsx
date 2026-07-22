@@ -1,6 +1,7 @@
 import type { Session, User } from '@supabase/supabase-js';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 
+import { unregisterPush } from '../lib/push';
 import { supabase } from '../lib/supabase';
 import type { UserRow } from '../types';
 
@@ -97,7 +98,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // True when authed but no username row yet → needs username setup step.
     needsUsername: !!session && !profile,
     refreshProfile: () => loadProfile(session?.user?.id),
-    signOut: () => supabase.auth.signOut(),
+    // Drop this device's push token before signing out so it stops receiving
+    // pushes for the account. Best-effort — never block sign-out on it.
+    signOut: async () => {
+      await unregisterPush().catch(() => {});
+      return supabase.auth.signOut();
+    },
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

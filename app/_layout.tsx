@@ -17,6 +17,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { AuthProvider, useAuth } from "../src/context/AuthContext";
+import { usePushRegistration } from "../src/hooks/usePushRegistration";
 import { colors } from "../src/theme";
 
 // Keep the native splash screen visible until fonts and auth state are loaded.
@@ -46,6 +47,9 @@ export default function RootLayout() {
 // at a time; failing a guard redirects to the anchor (index), which re-routes.
 function RootStack() {
   const { session, needsUsername, loading } = useAuth();
+
+  // Register for push once authed + route notification taps.
+  usePushRegistration();
 
   useEffect(() => {
     if (!loading) {

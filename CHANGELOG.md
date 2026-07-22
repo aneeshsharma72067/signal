@@ -5,6 +5,12 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- **Push notifications (Android)**:
+  - Off-device push for reactions, follows, new notes, replies, and direct voice messages via Expo Push (APNs/FCM proxy) — no third-party vendor.
+  - New migration `0020_push_notifications.sql`: `push_tokens` table (one row per device, RLS-scoped to the owner), `pg_net`-based AFTER INSERT triggers on `notifications` and `messages` that POST the row to the `push` edge function. Project URL + service-role key read from Supabase Vault (no committed secrets).
+  - New `push` Supabase Edge Function: resolves the recipient's device tokens, sends the Expo Push payload in ≤100-message chunks, and prunes `DeviceNotRegistered` tokens from `push_tokens`.
+  - Client: `src/lib/push.ts` requests permission, registers the Expo push token, and upserts it; `usePushRegistration` hook registers on auth and deep-links notification taps to the thread / conversation / activity screen. Token is dropped on sign-out.
+  - Added `expo-notifications` + `expo-device`; registered the `expo-notifications` config plugin and the Android `default` notification channel.
 - **Direct voice messages (1:1 DMs)**:
   - Added private 1:1 voice messaging between users who mutually follow each other.
   - New `MessagesScreen` (`/messages`) lists all direct message threads sorted by last activity, decorated with unread count badges.

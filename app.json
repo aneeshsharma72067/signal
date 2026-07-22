@@ -46,7 +46,8 @@
         {
           "microphonePermission": "Signal needs microphone access to record your 30-second voice notes."
         }
-      ]
+      ],
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true,
