@@ -46,6 +46,8 @@ app-example
 .env
 google-services.json
 google-service-account*.json
+# Firebase Admin SDK private keys (FCM v1) — never commit
+*-firebase-adminsdk-*.json
 
 
 2026-*.txt
