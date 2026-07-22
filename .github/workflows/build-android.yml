@@ -1,17 +1,15 @@
 name: Build Android APK
 
-# Builds a release-signed APK with the native Gradle toolchain (no EAS Build).
-# android/ is gitignored (Expo-generated), so the job regenerates it with
-# `expo prebuild` and signs via AGP's injected signing properties — this avoids
-# patching the generated build.gradle, which prebuild would overwrite.
+# Builds an installable APK for sideload distribution via GitHub (NOT Play
+# Store). android/ is gitignored (Expo-generated), so the job regenerates it
+# with `expo prebuild`, then `assembleRelease`. The Expo template signs the
+# release variant with the debug keystore, so no release keystore is needed —
+# the APK installs on any device but is NOT Play-Store uploadable. Add a real
+# keystore + AGP injected signing when you go to the Play Store.
 #
-# Required repository secrets:
-#   ANDROID_KEYSTORE_BASE64      — base64 of the release keystore (.jks)
-#   ANDROID_KEYSTORE_PASSWORD    — keystore store password
-#   ANDROID_KEY_ALIAS            — key alias inside the keystore
-#   ANDROID_KEY_PASSWORD         — key password (often same as store password)
+# Required repository secrets (inlined into the JS bundle at build time):
 #   GOOGLE_SERVICES_JSON_BASE64  — base64 of google-services.json (gitignored)
-#   EXPO_PUBLIC_SUPABASE_URL     — inlined into the JS bundle at build time
+#   EXPO_PUBLIC_SUPABASE_URL
 #   EXPO_PUBLIC_SUPABASE_ANON_KEY
 #   EXPO_PUBLIC_GIPHY_API_KEY
 
@@ -56,31 +54,15 @@ jobs:
           EXPO_PUBLIC_GIPHY_API_KEY: ${{ secrets.EXPO_PUBLIC_GIPHY_API_KEY }}
         run: npx expo prebuild --platform android --no-install
 
-      # Decode the release keystore to a file the Gradle build can read.
-      - name: Restore keystore
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        run: echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
-
-      # assembleRelease with AGP injected signing — overrides the debug signing
-      # the Expo template puts on the release variant, without editing build.gradle.
-      # EXPO_PUBLIC_* are inlined into the JS bundle Metro produces during this step.
+      # assembleRelease. EXPO_PUBLIC_* are inlined into the JS bundle Metro
+      # produces during this step. Signed with the debug keystore (see header).
       - name: Build release APK
         working-directory: android
         env:
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
           EXPO_PUBLIC_GIPHY_API_KEY: ${{ secrets.EXPO_PUBLIC_GIPHY_API_KEY }}
-          STORE_FILE: ${{ runner.temp }}/release.jks
-          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          ./gradlew assembleRelease \
-            -Pandroid.injected.signing.store.file="$STORE_FILE" \
-            -Pandroid.injected.signing.store.password="$STORE_PASSWORD" \
-            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
-            -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+        run: ./gradlew assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
