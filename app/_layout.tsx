@@ -78,10 +78,8 @@ function RootStack() {
 
       {/* Authed with a username → the app. */}
       <Stack.Protected guard={isAuthed && !needsUsername}>
-        <Stack.Screen name="feed" />
+        <Stack.Screen name="(tabs)" />
         <Stack.Screen name="search" />
-        <Stack.Screen name="my-notes" />
-        <Stack.Screen name="profile" />
         <Stack.Screen name="user/[id]" />
         <Stack.Screen name="follows" />
         <Stack.Screen name="notifications" />

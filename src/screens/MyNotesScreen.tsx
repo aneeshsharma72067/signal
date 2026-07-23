@@ -238,7 +238,7 @@ export default function MyNotesScreen() {
           keyExtractor={(item) => item.id}
           onEndReached={sort === 'new' ? loadMoreNotes : undefined}
           onEndReachedThreshold={0.5}
-          contentContainerStyle={{ padding: space.containerPadding, gap: space.elementGap, paddingBottom: 48 }}
+          contentContainerStyle={{ padding: space.containerPadding, gap: space.elementGap, paddingBottom: 120 }}
           ListHeaderComponent={
             <View style={{ gap: 20, marginBottom: space.elementGap }}>
               {listHeader}
@@ -294,7 +294,7 @@ export default function MyNotesScreen() {
           keyExtractor={(item) => item.id}
           onEndReached={loadMoreReplies}
           onEndReachedThreshold={0.5}
-          contentContainerStyle={{ padding: space.containerPadding, gap: space.elementGap, paddingBottom: 48 }}
+          contentContainerStyle={{ padding: space.containerPadding, gap: space.elementGap, paddingBottom: 120 }}
           ListHeaderComponent={
             <View style={{ gap: 20, marginBottom: space.elementGap }}>
               {listHeader}

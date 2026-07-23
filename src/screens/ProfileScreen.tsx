@@ -94,7 +94,7 @@ export default function ProfileScreen() {
         keyExtractor={(item) => item.id}
         onEndReached={loadMore}
         onEndReachedThreshold={0.5}
-        contentContainerStyle={{ padding: space.containerPadding, gap: space.elementGap, paddingBottom: 48 }}
+        contentContainerStyle={{ padding: space.containerPadding, gap: space.elementGap, paddingBottom: 120 }}
         ListHeaderComponent={
           <View style={{ gap: space.elementGap, marginBottom: space.elementGap }}>
             {/* Identity block: lime monogram + name. */}

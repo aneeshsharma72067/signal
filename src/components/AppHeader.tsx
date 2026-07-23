@@ -6,16 +6,11 @@ import { Pressable, Text, View } from 'react-native';
 import { useUnreadBadge } from '../hooks/useUnreadBadge';
 import { useUnreadMessages } from '../hooks/useUnreadMessages';
 import { colors, fonts, radius } from '../theme';
-import { Headline, Label } from './ui';
+import { Headline } from './ui';
 
-// Top app bar with the SIGNAL wordmark and a small route switcher.
-// Design forbids a generic bottom nav, so navigation lives up here.
-const ROUTES = [
-  { href: '/feed' as const, label: 'FEED' },
-  { href: '/my-notes' as const, label: 'NOTES' },
-  { href: '/profile' as const, label: 'ME' },
-];
-
+// Top app bar with the SIGNAL wordmark and the utility icons (search,
+// messages, activity). Primary navigation (Feed/Notes/Me) lives in the
+// floating BrutalTabBar at the bottom, not here.
 export default function AppHeader() {
   const router = useRouter();
   const pathname = usePathname();
@@ -46,20 +41,6 @@ export default function AppHeader() {
         }}>
         <Headline style={{ fontSize: 24 }}>SIGNAL</Headline>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
-          {ROUTES.map((r) => {
-            const isActive = pathname === r.href;
-            return (
-              <Pressable key={r.href} onPress={() => router.navigate(r.href)} hitSlop={8}>
-                <Label
-                  style={{
-                    color: isActive ? colors.ink : colors.onSurfaceVariant,
-                    textDecorationLine: isActive ? 'underline' : 'none',
-                  }}>
-                  {r.label}
-                </Label>
-              </Pressable>
-            );
-          })}
           <Pressable
             onPress={() => router.navigate('/search')}
             hitSlop={8}

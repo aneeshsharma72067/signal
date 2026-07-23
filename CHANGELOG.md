@@ -4,6 +4,9 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **Bottom tab navigation**: replaced the in-header FEED / NOTES / ME route switcher with an Expo Router bottom tab group (`app/(tabs)/`). Navigation now uses a custom `BrutalTabBar` — a neo-brutalist floating pill bar detached from all screen edges (bottom/left/right margins), with rounded corners, a 2px ink border, and the solid offset shadow. Active tab renders as a lime pill with icon + label; inactive tabs are icon-only. `AppHeader` keeps only the wordmark and utility icons (search/messages/activity). Route URLs (`/feed`, `/my-notes`, `/profile`) are unchanged.
+
 ### Added
 - **Push notifications (Android)**:
   - Off-device push for reactions, follows, new notes, replies, and direct voice messages via Expo Push (APNs/FCM proxy) — no third-party vendor.
