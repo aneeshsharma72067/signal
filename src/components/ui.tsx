@@ -14,6 +14,7 @@ import Animated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
@@ -166,6 +167,54 @@ export function Card({
   return inner();
 }
 
+// Skeleton placeholder for a VoiceNoteCard while a page loads. An ink-bordered
+// card whose grey blocks pulse opacity. The pulse loops on the UI thread (one
+// shared value + withRepeat) so it costs nothing on the JS thread and stays
+// smooth on low-end devices.
+export function SkeletonCard({ style }: { style?: StyleProp<ViewStyle> }) {
+  const pulse = useSharedValue(0.4);
+  useEffect(() => {
+    // 0.4 → 0.9 → 0.4, forever. -1 repeats, `true` reverses each cycle.
+    pulse.value = withRepeat(withTiming(0.9, { duration: 700, easing: Easing.inOut(Easing.quad) }), -1, true);
+  }, [pulse]);
+
+  const blockStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
+  const Block = ({ w, h, r = 6 }: { w: ViewStyle['width']; h: number; r?: number }) => (
+    <Animated.View
+      style={[{ width: w, height: h, borderRadius: r, backgroundColor: colors.surfaceContainerHigh }, blockStyle]}
+    />
+  );
+
+  return (
+    <View
+      style={[
+        {
+          backgroundColor: colors.canvas,
+          borderWidth: 2,
+          borderColor: colors.ink,
+          borderRadius: radius.lg,
+          padding: 24,
+          gap: 18,
+        },
+        brutalistShadow,
+        style,
+      ]}>
+      {/* Header: monogram + name/timestamp lines. */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <Block w={44} h={44} r={radius.md} />
+        <View style={{ gap: 6 }}>
+          <Block w={120} h={14} />
+          <Block w={72} h={10} />
+        </View>
+      </View>
+      {/* Waveform / player bar. */}
+      <Block w="100%" h={44} r={10} />
+      {/* Reaction row. */}
+      <Block w="60%" h={14} />
+    </View>
+  );
+}
+
 // Secondary action — same brutalist pill as SignalButton but white canvas fill.
 // Use for non-primary actions (log out, sort, cancel) so lime stays rationed.
 export function SecondaryButton({
@@ -284,7 +333,12 @@ export interface SegmentOption<T extends string = string> {
 }
 
 // Segmented control — a single ink-bordered bar split into mono-caps options.
-// The selected segment fills lime. One lime per control keeps the budget.
+// The selected segment fills lime via a pill that slides between options.
+//
+// The slide runs entirely on the UI thread: the selected index is a shared
+// value driven by withTiming, and the pill's translateX is a worklet reading
+// it. Switching options never re-renders anything for the animation. One lime
+// per control keeps the budget.
 export function Segmented<T extends string = string>({
   options,
   value,
@@ -296,8 +350,30 @@ export function Segmented<T extends string = string>({
   onChange: (value: T) => void;
   style?: StyleProp<ViewStyle>;
 }) {
+  // Measured width of the whole bar → each equal-width segment. Held in a shared
+  // value so the pill worklet can read it without a React render.
+  const barWidth = useSharedValue(0);
+  const index = Math.max(0, options.findIndex((o) => o.value === value));
+  const animIndex = useSharedValue(index);
+
+  // Only JS→UI hop: spring the pill to the newly selected index.
+  useEffect(() => {
+    animIndex.value = withTiming(index, { duration: 220, easing: Easing.out(Easing.quad) });
+  }, [index, animIndex]);
+
+  const count = options.length;
+  const pillStyle = useAnimatedStyle(() => {
+    const seg = barWidth.value / count;
+    return {
+      width: seg,
+      transform: [{ translateX: animIndex.value * seg }],
+      opacity: barWidth.value > 0 ? 1 : 0,
+    };
+  });
+
   return (
     <View
+      onLayout={(e) => { barWidth.value = e.nativeEvent.layout.width; }}
       style={[
         {
           flexDirection: 'row',
@@ -309,6 +385,15 @@ export function Segmented<T extends string = string>({
         },
         style,
       ]}>
+      {/* Sliding lime pill behind the labels. Sits inside the 2px border via
+          top/bottom 0; its width/x come from the worklet. */}
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          { position: 'absolute', top: 0, bottom: 0, left: 0, backgroundColor: colors.signal },
+          pillStyle,
+        ]}
+      />
       {options.map((opt, i) => {
         const selected = opt.value === value;
         return (
@@ -320,7 +405,6 @@ export function Segmented<T extends string = string>({
               paddingVertical: 11,
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: selected ? colors.signal : 'transparent',
               borderLeftWidth: i === 0 ? 0 : 2,
               borderLeftColor: colors.ink,
             }}>

@@ -5,6 +5,9 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Changed
+- **Feed scope switch — no more full-screen reload**: switching between EVERYONE and FOLLOWING no longer unmounts the whole screen behind a blank spinner. The header and scope switcher stay mounted (single always-mounted FlatList), so the transition is seamless.
+  - **Animated `Segmented`**: the selected-segment lime fill is now a pill that *slides* between options. Driven by a shared value + `withTiming` with a transform-only worklet — the slide runs entirely on the UI thread, so it stays smooth on low-end devices and never re-renders React. Applies everywhere `Segmented` is used (feed, activity, my-notes, follows).
+  - **Skeleton loader**: while a fresh page loads, the feed shows pulsing `SkeletonCard` placeholders (ink-bordered cards with opacity-pulsing grey blocks) instead of a centered spinner. The pulse loops via `withRepeat` on the UI thread.
 - **Messaging & activity screens — richer, faster, more interactive**:
   - **Activity**: added type filter tabs (All / Reactions / Follows / Replies), a per-type icon badge on each actor monogram, the reaction emoji shown large on reaction rows, a live unread count in the header, and selection haptics on tap.
   - **Inbox**: long-press a thread to delete it (confirm modal, optimistic removal), a total-unread count in the header, a lime left rail on unread threads, and selection/impact haptics.

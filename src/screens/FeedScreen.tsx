@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AppHeader from '../components/AppHeader';
 import VoiceNoteCard from '../components/VoiceNoteCard';
-import { Body, Display, Label, Rule, Segmented, SignalButton } from '../components/ui';
+import { Body, Display, Label, Rule, Segmented, SignalButton, SkeletonCard } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 import { useFeed } from '../hooks/useFeed';
 import { useWindowedPlayback } from '../hooks/useWindowedPlayback';
@@ -57,23 +57,35 @@ export default function FeedScreen() {
     [router, user]
   );
 
-  // First-load: full-screen spinner. Hard error with no data: retry screen.
-  if (loading) {
-    return (
-      <Screen>
-        <View style={{ flex: 1, justifyContent: 'center' }}>
-          <ActivityIndicator color={colors.ink} size="large" />
-        </View>
-      </Screen>
-    );
-  }
+  // The list header (title + scope switcher) stays mounted across scope changes
+  // and loads — so the Segmented pill can slide instead of the whole screen
+  // remounting. It's defined once and reused by both the loading and loaded
+  // states below.
+  const listHeader = (
+    <View style={{ marginBottom: space.elementGap, gap: 20 }}>
+      <View>
+        <Label muted>{scope === 'following' ? '◆ YOUR CIRCLE' : '● LIVE BROADCAST'}</Label>
+        <Display style={{ marginTop: 8 }}>SIGNAL</Display>
+        <Body muted style={{ fontSize: 17, marginTop: 6 }}>
+          {scope === 'following' ? 'Notes from the voices you follow.' : 'Voices from everyone, freshest first.'}
+        </Body>
+      </View>
+      <Rule />
+      <Segmented options={SCOPES} value={scope} onChange={setScope} />
+    </View>
+  );
 
-  if (error && notes.length === 0) {
+  // Hard error with no data: a retry screen (header still shown so the user can
+  // switch scope without a remount).
+  if (error && notes.length === 0 && !loading) {
     return (
       <Screen>
-        <View style={{ flex: 1, justifyContent: 'center', padding: space.containerPadding, gap: 16 }}>
-          <Body style={{ color: colors.error }}>{error}</Body>
-          <SignalButton label="RETRY" onPress={reload} />
+        <View style={{ padding: space.containerPadding, flex: 1 }}>
+          {listHeader}
+          <View style={{ flex: 1, justifyContent: 'center', gap: 16 }}>
+            <Body style={{ color: colors.error }}>{error}</Body>
+            <SignalButton label="RETRY" onPress={reload} />
+          </View>
         </View>
       </Screen>
     );
@@ -97,8 +109,12 @@ export default function FeedScreen() {
           <Label style={{ color: colors.onErrorContainer }} numberOfLines={2}>{error}</Label>
         </View>
       )}
+      {/* ONE FlatList, always mounted — so the header (and its animated
+          Segmented pill) never remounts on a scope switch. While a fresh page
+          loads, the data is skeleton placeholders that pulse in place; the real
+          notes swap in when the fetch resolves. */}
       <FlatList
-        data={notes}
+        data={loading ? SKELETON_DATA : notes}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{
           padding: space.containerPadding,
@@ -106,50 +122,45 @@ export default function FeedScreen() {
           paddingBottom: 140,
           flexGrow: 1,
         }}
+        // No pull-to-refresh over skeletons.
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.ink} />
+          loading ? undefined : (
+            <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.ink} />
+          )
         }
-        onEndReached={loadMore}
+        onEndReached={loading ? undefined : loadMore}
         onEndReachedThreshold={0.5}
-        ListHeaderComponent={
-          <View style={{ marginBottom: space.elementGap, gap: 20 }}>
-            <View>
-              <Label muted>{scope === 'following' ? '◆ YOUR CIRCLE' : '● LIVE BROADCAST'}</Label>
-              <Display style={{ marginTop: 8 }}>SIGNAL</Display>
-              <Body muted style={{ fontSize: 17, marginTop: 6 }}>
-                {scope === 'following' ? 'Notes from the voices you follow.' : 'Voices from everyone, freshest first.'}
-              </Body>
-            </View>
-            <Rule />
-            <Segmented options={SCOPES} value={scope} onChange={setScope} />
-          </View>
-        }
-        ListEmptyComponent={<EmptyState scope={scope} />}
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={loading ? null : <EmptyState scope={scope} />}
         ListFooterComponent={
-          <FeedFooter loadingMore={loadingMore} hasMore={hasMore} count={notes.length} />
+          loading ? null : <FeedFooter loadingMore={loadingMore} hasMore={hasMore} count={notes.length} />
         }
-        renderItem={({ item }) => (
-          <VoiceNoteCard
-            title={item.author?.username ?? 'ANON'}
-            own={item.author?.id === user?.id}
-            onPressAuthor={() => openAuthor(item)}
-            createdAt={item.created_at}
-            durationSec={item.duration}
-            audioUrl={item.audio_url}
-            reactionCounts={item.reactionCounts}
-            total={item.total}
-            myReaction={item.myReaction}
-            onReact={(emoji) => onReact(item.id, emoji)}
-            reactionDisabled={reactingId === item.id}
-            active={item.id === playingNoteId}
-            onActivate={() => activate(item.id)}
-            initialPosition={getInitialPosition(item.id)}
-            onSavePosition={(s) => savePosition(item.id, s)}
-            onFinish={() => handleFinish(item.id)}
-            replyCount={item.replyCount}
-            onPressReplies={() => router.navigate(`/thread/${item.id}`)}
-          />
-        )}
+        renderItem={({ item }) =>
+          loading ? (
+            <SkeletonCard />
+          ) : (
+            <VoiceNoteCard
+              title={item.author?.username ?? 'ANON'}
+              own={item.author?.id === user?.id}
+              onPressAuthor={() => openAuthor(item)}
+              createdAt={item.created_at}
+              durationSec={item.duration}
+              audioUrl={item.audio_url}
+              reactionCounts={item.reactionCounts}
+              total={item.total}
+              myReaction={item.myReaction}
+              onReact={(emoji) => onReact(item.id, emoji)}
+              reactionDisabled={reactingId === item.id}
+              active={item.id === playingNoteId}
+              onActivate={() => activate(item.id)}
+              initialPosition={getInitialPosition(item.id)}
+              onSavePosition={(s) => savePosition(item.id, s)}
+              onFinish={() => handleFinish(item.id)}
+              replyCount={item.replyCount}
+              onPressReplies={() => router.navigate(`/thread/${item.id}`)}
+            />
+          )
+        }
       />
 
       {/* Single lime focal action: record. */}
@@ -159,6 +170,11 @@ export default function FeedScreen() {
     </Screen>
   );
 }
+
+// Placeholder rows shown while a fresh page loads (count ≈ a typical first
+// page). Cast to FeedNote[] so they share the list's data type; renderItem only
+// reads `id` from them (it renders a SkeletonCard, ignoring the rest).
+const SKELETON_DATA = ['s1', 's2', 's3', 's4'].map((id) => ({ id })) as unknown as FeedNote[];
 
 function Screen({ children }: { children: ReactNode }) {
   return (
