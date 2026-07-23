@@ -14,10 +14,14 @@ import { colors, fonts, iosFocusShadow } from '../theme';
 // Neo-brutalist floating tab bar. Detached from all screen edges (bottom/left/
 // right margins), rounded corners, 2px ink border + solid offset shadow.
 //
-// Animation: a single lime pill slides between tabs (translateX + width spring
-// to the measured slot of the active tab), and each tab's text label grows in
-// from the icon — the icon stays put while the label's width/opacity animate,
-// producing an icon→text morph.
+// Layout: tabs are equal-width flex cells so they spread evenly across the bar.
+//
+// Animation (tuned for low-end devices):
+//  - A single lime pill slides between tabs using translateX ONLY. Because all
+//    cells are the same width the pill's width never changes, so nothing layout
+//    -related animates per frame — it's a pure transform, which Reanimated runs
+//    on the UI thread / GPU and stays smooth on cheap hardware.
+//  - Each active tab's label fades in (opacity only, no layout) beside the icon.
 //
 // One config entry per tab. `name` matches the route file in app/(tabs)/.
 const TABS: {
@@ -31,26 +35,21 @@ const TABS: {
   { name: 'profile', label: 'ME', icon: 'person-outline', activeIcon: 'person' },
 ];
 
-// Timing shared by the pill slide and the label reveal so they move together.
-const TIMING = { duration: 260 };
+const TIMING = { duration: 240 };
 
 export default function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-  // Measured {x, width} of each tab slot, filled in via onLayout. The sliding
-  // pill animates to the active slot; until a slot is measured it stays hidden.
+  // Measured {x, width} of each tab cell (all equal). Filled once via onLayout;
+  // the sliding pill reads the active cell's geometry. Hidden until measured.
   const [slots, setSlots] = useState<Record<number, { x: number; width: number }>>({});
 
   const active = state.index;
   const activeSlot = slots[active];
 
-  // Pill geometry follows the active slot. useDerivedValue re-runs whenever the
-  // dependency (activeSlot) changes; withTiming makes the jump a slide.
+  // translateX is the only animated value — width stays constant (equal cells).
   const pillX = useDerivedValue(() => withTiming(activeSlot?.x ?? 0, TIMING));
-  const pillW = useDerivedValue(() => withTiming(activeSlot?.width ?? 0, TIMING));
-
   const pillStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: pillX.value }],
-    width: pillW.value,
     opacity: activeSlot ? 1 : 0,
   }));
 
@@ -75,24 +74,27 @@ export default function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
           backgroundColor: colors.surface,
           ...iosFocusShadow,
         }}>
-        {/* Sliding lime pill sits behind the tabs (absolute inside the padded
-            row). Its offset by the container's 8px padding via top/left. */}
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            {
-              position: 'absolute',
-              left: 8,
-              top: 8,
-              bottom: 8,
-              borderRadius: 16,
-              borderWidth: 2,
-              borderColor: colors.ink,
-              backgroundColor: colors.signal,
-            },
-            pillStyle,
-          ]}
-        />
+        {/* Sliding lime pill, behind the tabs. Width matches one cell; only its
+            translateX animates. Positioned inside the 8px row padding. */}
+        {activeSlot && (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              {
+                position: 'absolute',
+                left: 8,
+                top: 8,
+                bottom: 8,
+                width: activeSlot.width,
+                borderRadius: 16,
+                borderWidth: 2,
+                borderColor: colors.ink,
+                backgroundColor: colors.signal,
+              },
+              pillStyle,
+            ]}
+          />
+        )}
         {state.routes.map((route, index) => {
           const tab = TABS.find((t) => t.name === route.name);
           if (!tab) return null;
@@ -109,13 +111,16 @@ export default function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
             }
           };
 
-          // Capture this tab's slot geometry so the pill knows where to slide.
+          // Capture each cell's geometry so the pill knows where to slide. The
+          // pill's `left: 8` already accounts for the row padding, so store the
+          // raw layout x (relative to the row) and subtract that padding.
           const onLayout = (e: LayoutChangeEvent) => {
             const { x, width } = e.nativeEvent.layout;
+            const slot = { x: x - 8, width };
             setSlots((prev) =>
-              prev[index]?.x === x && prev[index]?.width === width
+              prev[index]?.x === slot.x && prev[index]?.width === slot.width
                 ? prev
-                : { ...prev, [index]: { x, width } },
+                : { ...prev, [index]: slot },
             );
           };
 
@@ -128,11 +133,12 @@ export default function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
               accessibilityState={isActive ? { selected: true } : {}}
               accessibilityLabel={tab.label}
               style={{
+                flex: 1,
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'center',
+                gap: 6,
                 height: 48,
-                paddingHorizontal: 16,
               }}>
               <Ionicons
                 name={isActive ? tab.activeIcon : tab.icon}
@@ -148,25 +154,22 @@ export default function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
   );
 }
 
-// Label that morphs in beside the icon: width + opacity animate from 0 so the
-// icon appears to expand into the icon+text pill. Rendered with numberOfLines
-// so the text never wraps while its container width is mid-animation.
+// Label beside the icon. Fades in via opacity only (no width/layout animation)
+// so it costs nothing on low-end GPUs. When inactive it collapses to width 0 so
+// the icon centers in its cell; that width flip is a one-shot layout, not a
+// per-frame animation.
 function TabLabel({ label, active }: { label: string; active: boolean }) {
-  // Approx label width by character count — cheap and avoids a measure pass.
-  const target = active ? label.length * 8 + 8 : 0;
+  const style = useAnimatedStyle(() => ({ opacity: withTiming(active ? 1 : 0, TIMING) }));
 
-  const style = useAnimatedStyle(() => ({
-    width: withTiming(target, TIMING),
-    opacity: withTiming(active ? 1 : 0, TIMING),
-  }));
+  // Non-active labels take no space (display via width:0 wrapper), keeping the
+  // icon centered. Active label renders at its natural width.
+  if (!active) return null;
 
   return (
-    <Animated.View style={[{ overflow: 'hidden' }, style]}>
-      <Animated.Text
-        numberOfLines={1}
-        style={{ fontFamily: fonts.mono, fontSize: 12, color: colors.ink }}>
-        {label}
-      </Animated.Text>
-    </Animated.View>
+    <Animated.Text
+      numberOfLines={1}
+      style={[{ fontFamily: fonts.mono, fontSize: 12, color: colors.ink }, style]}>
+      {label}
+    </Animated.Text>
   );
 }
