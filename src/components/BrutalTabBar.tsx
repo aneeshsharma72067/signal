@@ -66,7 +66,12 @@ export default function BrutalTabBar({ state, navigation }: BottomTabBarProps) {
   // (equal cells) so only the transform animates — cheapest possible path.
   const pillStyle = useAnimatedStyle(() => {
     const s = slots.value;
-    if (s.length < TABS.length) return { opacity: 0 };
+    // `s` is filled sparsely (next[index] = ...), so a full length doesn't mean
+    // every cell is measured. Bail until all slots exist to avoid reading .x on
+    // an undefined hole.
+    for (let i = 0; i < TABS.length; i++) {
+      if (!s[i]) return { opacity: 0 };
+    }
     const x = interpolate(progress.value, indices, s.map((slot) => slot.x));
     return {
       opacity: 1,
