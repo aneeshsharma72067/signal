@@ -1,0 +1,59 @@
+---
+// Floating tab bar — the app's detached, floating pill nav. Lime pill sits on
+// the active tab; icon-to-label morph on active. Tabs: FEED / NOTES / ME
+// (from src/components/BrutalTabBar.tsx). Decorative chrome for mockups.
+interface Props {
+  active?: 'feed' | 'notes' | 'me';
+  class?: string;
+}
+const { active = 'feed', class: cls = '' } = Astro.props;
+const tabs = [
+  { key: 'feed', label: 'FEED', glyph: '📻' },
+  { key: 'notes', label: 'NOTES', glyph: '🎙' },
+  { key: 'me', label: 'ME', glyph: '👤' },
+];
+---
+
+<div class={`tabbar ${cls}`} role="presentation">
+  {
+    tabs.map((t) => (
+      <span class={t.key === active ? 'tabbar__tab tabbar__tab--on' : 'tabbar__tab'}>
+        <span class="tabbar__glyph">{t.glyph}</span>
+        {t.key === active && <span class="meta tabbar__label">{t.label}</span>}
+      </span>
+    ))
+  }
+</div>
+
+<style>
+  .tabbar {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px;
+    background: var(--canvas);
+    border: var(--border);
+    border-radius: var(--radius-pill);
+    box-shadow: var(--shadow);
+  }
+  .tabbar__tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 44px;
+    padding: 0 16px;
+    border-radius: var(--radius-pill);
+  }
+  .tabbar__tab--on {
+    background: var(--signal);
+    border: var(--border);
+    box-shadow: var(--shadow-sm);
+  }
+  .tabbar__glyph {
+    font-size: 18px;
+    line-height: 1;
+  }
+  .tabbar__label {
+    font-size: 12px;
+  }
+</style>

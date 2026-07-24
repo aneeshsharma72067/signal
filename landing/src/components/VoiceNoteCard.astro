@@ -1,0 +1,198 @@
+---
+// Voice Note Card — the hero object of the whole product. Static web recreation
+// of src/components/VoiceNoteCard.tsx: monogram + speaker + timestamp row, a
+// waveform player, and a reaction bar. `own` paints the monogram lime.
+import Waveform from './Waveform.astro';
+
+interface Reaction {
+  emoji: string;
+  count: number;
+  mine?: boolean; // viewer's own pick → lime fill + offset shadow
+}
+interface Props {
+  name: string;
+  time: string; // mono-caps, e.g. "3M AGO"
+  duration: string; // e.g. "0:28"
+  progress?: number;
+  own?: boolean;
+  reactions?: Reaction[];
+  total?: number;
+  replies?: number;
+  class?: string;
+}
+const {
+  name,
+  time,
+  duration,
+  progress = 0.42,
+  own = false,
+  reactions = [],
+  total,
+  replies,
+  class: cls = '',
+} = Astro.props;
+const letter = (name.trim()[0] ?? '?').toUpperCase();
+---
+
+<article class={`vnc ${cls}`}>
+  <header class="vnc__head">
+    <div class={own ? 'monogram monogram--own' : 'monogram'}>{letter}</div>
+    <div class="vnc__who">
+      <span class="meta vnc__name">{name}</span>
+      <span class="meta meta--muted">{time} &nbsp;·&nbsp; {duration}</span>
+    </div>
+    {own && <span class="meta vnc__badge">● YOU</span>}
+  </header>
+
+  <div class="vnc__player">
+    <span class="vnc__play" aria-hidden="true">▶</span>
+    <Waveform progress={progress} height={48} bars={44} />
+    <span class="meta meta--muted vnc__time">{duration}</span>
+  </div>
+
+  {
+    reactions.length > 0 && (
+      <>
+        <div class="vnc__rule" />
+        <div class="vnc__reactions">
+          {reactions.map((r) => (
+            <span class={r.mine ? 'pill pill--mine' : 'pill'}>
+              <span class="pill__emoji">{r.emoji}</span>
+              <span class="pill__count">{r.count}</span>
+            </span>
+          ))}
+        </div>
+        {(total ?? 0) > 0 && (
+          <span class="meta meta--muted">
+            {total} REACTION{total === 1 ? '' : 'S'}
+          </span>
+        )}
+      </>
+    )
+  }
+
+  {
+    typeof replies === 'number' && (
+      <span class="meta meta--muted vnc__replies">
+        ▶ {replies} {replies === 1 ? 'REPLY' : 'REPLIES'}
+      </span>
+    )
+  }
+</article>
+
+<style>
+  .vnc {
+    background: var(--canvas);
+    border: var(--border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .vnc__head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .monogram {
+    width: 40px;
+    height: 40px;
+    flex: none;
+    border: var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-container);
+    display: grid;
+    place-items: center;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 20px;
+  }
+  .monogram--own {
+    background: var(--signal);
+  }
+
+  .vnc__who {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    flex: 1;
+  }
+  .vnc__name {
+    font-size: 13px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-family: var(--font-mono);
+    font-weight: 600;
+  }
+  .vnc__badge {
+    color: var(--ink);
+    font-size: 10px;
+    align-self: flex-start;
+  }
+
+  .vnc__player {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .vnc__play {
+    width: 40px;
+    height: 40px;
+    flex: none;
+    border: var(--border);
+    border-radius: var(--radius-pill);
+    background: var(--signal);
+    box-shadow: var(--shadow-sm);
+    display: grid;
+    place-items: center;
+    font-size: 14px;
+    padding-left: 2px;
+  }
+  .vnc__time {
+    flex: none;
+  }
+
+  .vnc__rule {
+    height: 2px;
+    background: var(--ink);
+    opacity: 0.12;
+  }
+
+  .vnc__reactions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 32px;
+    padding: 0 10px;
+    border: var(--border);
+    border-radius: var(--radius-pill);
+    background: var(--canvas);
+  }
+  .pill--mine {
+    background: var(--signal);
+    box-shadow: var(--shadow-sm);
+  }
+  .pill__emoji {
+    font-size: 15px;
+    line-height: 1;
+  }
+  .pill__count {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 12px;
+  }
+
+  .vnc__replies {
+    padding-top: 2px;
+  }
+</style>

@@ -1,0 +1,59 @@
+---
+// Top nav — wordmark SIGNAL top-left (Bricolage), utility links + CTA top-right.
+// Mirrors the app's AppHeader layout. Sticky, hairline bottom rule.
+---
+
+<header class="nav">
+  <div class="container nav__row">
+    <a href="#top" class="nav__mark">SIGNAL</a>
+    <nav class="nav__links">
+      <a class="meta meta--muted nav__link" href="#how">HOW</a>
+      <a class="meta meta--muted nav__link" href="#reactions">REACTIONS</a>
+      <a class="meta meta--muted nav__link" href="#feed">FEED</a>
+      <a class="btn btn--signal nav__cta" href="#get">GET SIGNAL</a>
+    </nav>
+  </div>
+</header>
+
+<style>
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 2px solid var(--ink);
+  }
+  .nav__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 68px;
+  }
+  .nav__mark {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 24px;
+    letter-spacing: -1px;
+  }
+  .nav__links {
+    display: flex;
+    align-items: center;
+    gap: 26px;
+  }
+  .nav__link:hover {
+    color: var(--ink);
+  }
+  .nav__cta {
+    padding: 10px 18px;
+    box-shadow: var(--shadow-sm);
+  }
+  @media (max-width: 720px) {
+    .nav__link {
+      display: none;
+    }
+    .nav__cta {
+      display: inline-flex;
+    }
+  }
+</style>

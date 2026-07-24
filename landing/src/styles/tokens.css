@@ -1,0 +1,201 @@
+/*
+ * Signal design tokens — web mirror of src/theme.ts.
+ * The app's theme.ts is the source of truth; if a value here disagrees with the
+ * app, the app wins. Keep hex/radius/spacing in lockstep with theme.ts.
+ */
+
+:root {
+  /* Color — one lime accent, rest ink-on-white. */
+  --ink: #1a1c1c;
+  --signal: #ccff00;
+  --canvas: #ffffff;
+  --surface: #f9f9f9;
+  --surface-container: #eeeeee;
+  --surface-container-high: #e8e8e8;
+  --on-surface-variant: #444933;
+  --outline-variant: #c4c9ac;
+  --error: #ba1a1a;
+
+  /* Radius — theme.ts: md 12, lg 16, full 9999. */
+  --radius-sm: 12px;
+  --radius-card: 16px;
+  --radius-pill: 9999px;
+
+  /* Spacing — 8px grid. Landing sections go larger than the app. */
+  --unit: 8px;
+  --gap: 24px;
+  --pad: 32px;
+  --section: 120px; /* between landing sections; app uses 48 */
+
+  /* The Signal offset shadow — solid ink, zero blur, down-and-right. */
+  --shadow: 4px 4px 0 var(--ink);
+  --shadow-sm: 2px 2px 0 var(--ink);
+  --shadow-lg: 8px 8px 0 var(--ink);
+  --shadow-hover: 6px 6px 0 var(--ink);
+
+  --border: 2px solid var(--ink);
+
+  /* Type families — same three jobs as the app. */
+  --font-display: 'Bricolage Grotesque', system-ui, sans-serif;
+  --font-body: 'Hanken Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --maxw: 1180px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-weight: 400;
+  background: var(--surface);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -1.5px;
+  line-height: 0.95;
+  margin: 0;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+/* Mono-caps metadata — timestamps, durations, eyebrows, nav labels. */
+.meta {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  font-size: 12px;
+}
+
+.meta--muted {
+  color: var(--on-surface-variant);
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  font-size: 13px;
+  color: var(--on-surface-variant);
+}
+
+/* Body copy stays calm and sentence-case so headlines can shout. */
+.lede {
+  font-size: 20px;
+  line-height: 1.55;
+  max-width: 46ch;
+  color: var(--on-surface-variant);
+}
+
+/* Layout container. */
+.container {
+  width: 100%;
+  max-width: var(--maxw);
+  margin-inline: auto;
+  padding-inline: 24px;
+}
+
+.section {
+  padding-block: var(--section);
+}
+
+/* Lime highlight mark — for one accent word in a headline. */
+mark.hl {
+  background: var(--signal);
+  color: var(--ink);
+  padding: 0 0.12em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* ---- The primary button: lime pill that drops when pressed ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: var(--border);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow);
+  padding: 16px 28px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  font-size: 14px;
+  cursor: pointer;
+  background: var(--canvas);
+  color: var(--ink);
+  transition: transform 0.06s ease, box-shadow 0.06s ease;
+  will-change: transform;
+}
+
+.btn--signal {
+  background: var(--signal);
+}
+
+.btn:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: var(--shadow-hover);
+}
+
+.btn:active {
+  transform: translate(4px, 4px);
+  box-shadow: 0 0 0 var(--ink);
+}
+
+/* Card — canvas fill, ink border, offset shadow. Default container. */
+.card {
+  background: var(--canvas);
+  border: var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-sm);
+  padding: var(--gap);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .btn {
+    transition: none;
+  }
+}
+
+@media (max-width: 720px) {
+  :root {
+    --section: 72px;
+  }
+  .lede {
+    font-size: 18px;
+  }
+}

@@ -1,0 +1,503 @@
+---
+import Base from '../layouts/Base.astro';
+import Nav from '../components/Nav.astro';
+import VoiceNoteCard from '../components/VoiceNoteCard.astro';
+import Waveform from '../components/Waveform.astro';
+import PhoneFrame from '../components/PhoneFrame.astro';
+import TabBar from '../components/TabBar.astro';
+
+// The six fixed reactions — a brand asset (src/theme.ts REACTION_EMOJIS).
+const REACTIONS = ['🔥', '💙', '🤝', '😂', '💀', '🤯'];
+---
+
+<Base>
+  <a id="top"></a>
+  <Nav />
+
+  <!-- ═══════════════════ HERO ═══════════════════ -->
+  <section class="hero section">
+    <div class="container hero__grid">
+      <div class="hero__copy">
+        <span class="eyebrow">● VOICE-FIRST SOCIAL NETWORK</span>
+        <h1 class="hero__title">
+          SAY IT<br />
+          <mark class="hl">OUT LOUD.</mark>
+        </h1>
+        <p class="lede">
+          Thirty seconds. That's the whole post. No text, no threads, no
+          doomscroll of essays — just voices, reactions, and a live global feed
+          you can actually hear.
+        </p>
+        <div class="hero__cta">
+          <a class="btn btn--signal" href="#get">START TALKING</a>
+          <a class="btn" href="#how">SEE HOW ▶</a>
+        </div>
+        <div class="hero__stats">
+          <div><span class="hero__stat">0:30</span><span class="meta meta--muted">MAX PER NOTE</span></div>
+          <div><span class="hero__stat">6</span><span class="meta meta--muted">REACTIONS. THAT'S ALL</span></div>
+          <div><span class="hero__stat">1</span><span class="meta meta--muted">LIVE GLOBAL FEED</span></div>
+        </div>
+      </div>
+
+      <!-- Centerpiece: a stacked live voice note. -->
+      <div class="hero__stage">
+        <div class="hero__blob" aria-hidden="true"></div>
+        <VoiceNoteCard
+          class="hero__card hero__card--back"
+          name="maya"
+          time="12M AGO"
+          duration="0:22"
+          progress={0.7}
+          reactions={[{ emoji: '🔥', count: 24 }, { emoji: '😂', count: 9 }]}
+          total={33}
+        />
+        <VoiceNoteCard
+          class="hero__card hero__card--front"
+          name="you"
+          time="JUST NOW"
+          duration="0:28"
+          progress={0.42}
+          own={true}
+          reactions={[
+            { emoji: '🔥', count: 12, mine: true },
+            { emoji: '💙', count: 5 },
+            { emoji: '🤝', count: 3 },
+          ]}
+          total={20}
+          replies={4}
+        />
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════ MARQUEE BAND ═══════════════════ -->
+  <div class="ticker" aria-hidden="true">
+    <div class="ticker__track">
+      {
+        Array.from({ length: 2 }).map(() => (
+          <span class="ticker__run meta">
+            ● LIVE BROADCAST&nbsp;&nbsp;/&nbsp;&nbsp;JUST NOW&nbsp;&nbsp;/&nbsp;&nbsp;0:28&nbsp;&nbsp;/&nbsp;&nbsp;◆
+            DIRECT&nbsp;&nbsp;/&nbsp;&nbsp;2 REACTIONS&nbsp;&nbsp;/&nbsp;&nbsp;3M AGO&nbsp;&nbsp;/&nbsp;&nbsp;NO
+            TEXT&nbsp;&nbsp;/&nbsp;&nbsp;JUST VOICES&nbsp;&nbsp;/&nbsp;&nbsp;
+          </span>
+        ))
+      }
+    </div>
+  </div>
+
+  <!-- ═══════════════════ HOW IT WORKS ═══════════════════ -->
+  <section id="how" class="section">
+    <div class="container">
+      <span class="eyebrow">HOW IT WORKS</span>
+      <h2 class="sec__title">THREE MOVES.<br />THE REST IS TALKING.</h2>
+      <div class="steps">
+        <div class="step card">
+          <span class="step__num">01</span>
+          <h3 class="step__h">HOLD. SPEAK.</h3>
+          <p class="step__p">Hit record, say your piece. You get thirty seconds — the timer is the point. No editing suites, no scripts.</p>
+          <Waveform progress={0.6} height={40} bars={36} class="step__wave" />
+        </div>
+        <div class="step card">
+          <span class="step__num">02</span>
+          <h3 class="step__h">DROP IT LIVE.</h3>
+          <p class="step__p">Your note lands in the global feed the instant you release. People hear you now, not after an algorithm decides.</p>
+          <TabBar active="feed" class="step__tabs" />
+        </div>
+        <div class="step card">
+          <span class="step__num">03</span>
+          <h3 class="step__h">REACT WITH SIX.</h3>
+          <p class="step__p">No comment wars. Six emojis, one tap. Follow the voices you like, DM the ones you love.</p>
+          <div class="step__reacts">
+            {REACTIONS.map((e) => <span class="step__react">{e}</span>)}
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════ REACTIONS — BRAND ASSET ═══════════════════ -->
+  <section id="reactions" class="reactions section">
+    <div class="container reactions__grid">
+      <div>
+        <span class="eyebrow">SIX. NO MORE.</span>
+        <h2 class="sec__title">REACT WITH<br />SIX. THAT'S<br />ALL YOU GET.</h2>
+        <p class="lede">Every voice note gets the same six reactions. No likes to farm, no reply guys, no essays in the comments. Just fire, or not.</p>
+      </div>
+      <div class="reactions__wall">
+        {
+          REACTIONS.map((e, i) => (
+            <span class={`reactions__pill ${i === 0 ? 'reactions__pill--on' : ''}`}>{e}</span>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════ THE FEED ═══════════════════ -->
+  <section id="feed" class="feed section">
+    <div class="container feed__grid">
+      <div class="feed__phone">
+        <PhoneFrame label="THE LIVE FEED" />
+        <TabBar active="feed" class="feed__tabs" />
+      </div>
+      <div>
+        <span class="eyebrow">● LIVE BROADCAST</span>
+        <h2 class="sec__title">A FEED YOU<br />HEAR, NOT<br />SKIM.</h2>
+        <p class="lede">One real-time global stream of voice notes. Tap any card, it plays. Swipe, the next voice starts. It reads like a radio you scroll — the floating tab bar keeps FEED, NOTES and ME one thumb away.</p>
+        <a class="btn btn--signal feed__cta" href="#get">JOIN THE BROADCAST</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════ DIRECT / DM ═══════════════════ -->
+  <section class="section direct">
+    <div class="container feed__grid feed__grid--rev">
+      <div>
+        <span class="eyebrow">◆ DIRECT</span>
+        <h2 class="sec__title">SLIDE INTO<br />DMs. LITERALLY<br />OUT LOUD.</h2>
+        <p class="lede">Private, 1:1 voice messages. Same thirty-second rule, same brutalist cards. Follow someone back and the DM opens — no read receipts theatre, just their voice in your ear.</p>
+      </div>
+      <div class="feed__phone">
+        <PhoneFrame label="1:1 VOICE MESSAGES" />
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════ MANIFESTO BAND ═══════════════════ -->
+  <section class="manifesto">
+    <div class="container">
+      <h2 class="manifesto__h">NO TEXT.<br />NO ALGORITHM.<br />JUST VOICES.</h2>
+      <Waveform progress={0.5} height={72} bars={64} class="manifesto__wave" />
+    </div>
+  </section>
+
+  <!-- ═══════════════════ GET SIGNAL ═══════════════════ -->
+  <section id="get" class="get section">
+    <div class="container get__inner card">
+      <div>
+        <span class="eyebrow">GET SIGNAL</span>
+        <h2 class="get__h">STOP TYPING.<br />START TALKING.</h2>
+        <p class="lede">Free. Android now, iOS next. Thirty seconds from here to your first broadcast.</p>
+      </div>
+      <div class="get__actions">
+        <a class="btn btn--signal" href="#">▶ GET IT ON ANDROID</a>
+        <a class="btn" href="#">◆ IOS — JOIN WAITLIST</a>
+        <span class="meta meta--muted">NO ACCOUNT WALL · NO ADS · NO TRACKING</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════ FOOTER ═══════════════════ -->
+  <footer class="footer">
+    <div class="container footer__row">
+      <span class="footer__mark">SIGNAL</span>
+      <span class="meta meta--muted">© 2026 SIGNAL · SAY IT OUT LOUD</span>
+      <div class="footer__links">
+        <a class="meta meta--muted" href="#">PRIVACY</a>
+        <a class="meta meta--muted" href="#">TERMS</a>
+        <a class="meta meta--muted" href="#top">TOP ↑</a>
+      </div>
+    </div>
+  </footer>
+</Base>
+
+<style>
+  .sec__title {
+    font-size: clamp(34px, 6vw, 68px);
+    margin: 14px 0 20px;
+  }
+
+  /* ---------- HERO ---------- */
+  .hero {
+    padding-top: 72px;
+  }
+  .hero__grid {
+    display: grid;
+    grid-template-columns: 1.05fr 0.95fr;
+    gap: 56px;
+    align-items: center;
+  }
+  .hero__title {
+    font-size: clamp(56px, 11vw, 132px);
+    margin: 18px 0 24px;
+    letter-spacing: -3px;
+  }
+  .hero__cta {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 32px;
+  }
+  .hero__stats {
+    display: flex;
+    gap: 40px;
+    margin-top: 48px;
+    flex-wrap: wrap;
+  }
+  .hero__stats > div {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .hero__stat {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 40px;
+    letter-spacing: -1.5px;
+  }
+
+  .hero__stage {
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-height: 460px;
+  }
+  .hero__blob {
+    position: absolute;
+    inset: 8% 4%;
+    background: var(--signal);
+    border: var(--border);
+    border-radius: var(--radius-card);
+    transform: rotate(-3deg);
+    box-shadow: var(--shadow-lg);
+  }
+  .hero__card {
+    position: absolute;
+    width: min(360px, 82%);
+  }
+  .hero__card--back {
+    transform: rotate(4deg) translate(38px, -96px);
+    opacity: 0.96;
+  }
+  .hero__card--front {
+    transform: rotate(-2deg) translateY(64px);
+    z-index: 2;
+  }
+
+  /* ---------- TICKER ---------- */
+  .ticker {
+    border-block: 2px solid var(--ink);
+    background: var(--ink);
+    color: var(--signal);
+    overflow: hidden;
+    padding-block: 14px;
+  }
+  .ticker__track {
+    display: flex;
+    width: max-content;
+    animation: scroll 32s linear infinite;
+  }
+  .ticker__run {
+    white-space: nowrap;
+    font-size: 15px;
+    color: var(--signal);
+  }
+  @keyframes scroll {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  /* ---------- STEPS ---------- */
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin-top: 40px;
+  }
+  .step {
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 28px;
+  }
+  .step__num {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 56px;
+    line-height: 1;
+    color: var(--ink);
+    -webkit-text-stroke: 2px var(--ink);
+    color: transparent;
+  }
+  .step__h {
+    font-size: 26px;
+  }
+  .step__p {
+    color: var(--on-surface-variant);
+    font-size: 16px;
+  }
+  .step__wave {
+    margin-top: auto;
+  }
+  .step__tabs {
+    margin-top: auto;
+    align-self: flex-start;
+    transform: scale(0.86);
+    transform-origin: left;
+  }
+  .step__reacts {
+    display: flex;
+    gap: 6px;
+    margin-top: auto;
+    flex-wrap: wrap;
+  }
+  .step__react {
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    border: var(--border);
+    border-radius: var(--radius-pill);
+    font-size: 18px;
+    background: var(--canvas);
+  }
+
+  /* ---------- REACTIONS WALL ---------- */
+  .reactions {
+    background: var(--canvas);
+    border-block: 2px solid var(--ink);
+  }
+  .reactions__grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 56px;
+    align-items: center;
+  }
+  .reactions__wall {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+  .reactions__pill {
+    aspect-ratio: 1;
+    display: grid;
+    place-items: center;
+    font-size: clamp(36px, 6vw, 60px);
+    border: var(--border);
+    border-radius: var(--radius-card);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+  }
+  .reactions__pill--on {
+    background: var(--signal);
+    box-shadow: var(--shadow);
+  }
+
+  /* ---------- FEED / DIRECT ---------- */
+  .feed__grid {
+    display: grid;
+    grid-template-columns: 0.9fr 1.1fr;
+    gap: 64px;
+    align-items: center;
+  }
+  .feed__grid--rev {
+    grid-template-columns: 1.1fr 0.9fr;
+  }
+  .feed__phone {
+    position: relative;
+    display: grid;
+    place-items: center;
+  }
+  .feed__tabs {
+    position: absolute;
+    bottom: 26px;
+    left: 50%;
+    transform: translateX(-50%) scale(0.9);
+  }
+  .feed__cta {
+    margin-top: 32px;
+  }
+  .direct {
+    background: var(--canvas);
+    border-block: 2px solid var(--ink);
+  }
+
+  /* ---------- MANIFESTO ---------- */
+  .manifesto {
+    background: var(--signal);
+    border-block: 2px solid var(--ink);
+    padding-block: clamp(80px, 12vw, 160px);
+  }
+  .manifesto__h {
+    font-size: clamp(44px, 9vw, 120px);
+    letter-spacing: -3px;
+  }
+  .manifesto__wave {
+    margin-top: 48px;
+    max-width: 640px;
+  }
+
+  /* ---------- GET ---------- */
+  .get__inner {
+    box-shadow: var(--shadow-lg);
+    padding: clamp(32px, 5vw, 64px);
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr;
+    gap: 48px;
+    align-items: center;
+  }
+  .get__h {
+    font-size: clamp(36px, 6vw, 68px);
+    margin: 12px 0 18px;
+  }
+  .get__actions {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  .get__actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* ---------- FOOTER ---------- */
+  .footer {
+    border-top: 2px solid var(--ink);
+    padding-block: 40px;
+  }
+  .footer__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  .footer__mark {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 22px;
+  }
+  .footer__links {
+    display: flex;
+    gap: 20px;
+  }
+
+  /* ---------- RESPONSIVE ---------- */
+  @media (max-width: 900px) {
+    .hero__grid,
+    .reactions__grid,
+    .feed__grid,
+    .feed__grid--rev,
+    .get__inner {
+      grid-template-columns: 1fr;
+    }
+    .feed__grid--rev > :first-child {
+      order: 2;
+    }
+    .steps {
+      grid-template-columns: 1fr;
+    }
+    .hero__stage {
+      min-height: 420px;
+      margin-top: 24px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ticker__track {
+      animation: none;
+    }
+  }
+</style>

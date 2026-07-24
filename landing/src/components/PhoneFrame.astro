@@ -1,0 +1,85 @@
+---
+// Phone frame — a brutalist device mock that holds a screenshot. If `src` is
+// given it renders the image; otherwise a labelled placeholder slot so the
+// page is complete before real screenshots land. `label` names what screenshot
+// belongs here (also used as the placeholder caption + alt text).
+interface Props {
+  src?: string;
+  label: string;
+  class?: string;
+}
+const { src, label, class: cls = '' } = Astro.props;
+---
+
+<div class={`phone ${cls}`}>
+  <div class="phone__notch"></div>
+  {
+    src ? (
+      <img class="phone__shot" src={src} alt={label} loading="lazy" />
+    ) : (
+      <div class="phone__placeholder">
+        <span class="meta">SCREENSHOT</span>
+        <span class="phone__ph-label">{label}</span>
+        <span class="meta meta--muted">DROP IN /public/assets</span>
+      </div>
+    )
+  }
+</div>
+
+<style>
+  .phone {
+    position: relative;
+    width: 280px;
+    aspect-ratio: 9 / 19.5;
+    background: var(--ink);
+    border: var(--border);
+    border-radius: 34px;
+    box-shadow: var(--shadow-lg);
+    padding: 10px;
+    overflow: hidden;
+  }
+  .phone__notch {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 110px;
+    height: 22px;
+    background: var(--ink);
+    border-radius: var(--radius-pill);
+    z-index: 2;
+  }
+  .phone__shot {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 26px;
+  }
+  .phone__placeholder {
+    width: 100%;
+    height: 100%;
+    border-radius: 26px;
+    background: repeating-linear-gradient(
+      45deg,
+      var(--surface-container),
+      var(--surface-container) 12px,
+      var(--surface) 12px,
+      var(--surface) 24px
+    );
+    border: 2px dashed var(--outline-variant);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    text-align: center;
+    padding: 24px;
+  }
+  .phone__ph-label {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: -0.5px;
+    line-height: 1.05;
+  }
+</style>
